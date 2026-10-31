@@ -8,6 +8,7 @@ import type { ExamQuestion } from "@/components/LiveExamPlayer";
 
 function formatDateTime(d: Date) {
   return new Date(d).toLocaleString("bn-BD", {
+    timeZone: "Asia/Dhaka",
     dateStyle: "medium",
     timeStyle: "short",
   });
@@ -35,7 +36,6 @@ export default async function ModelTestPage({
   const session = await auth();
   const now = new Date();
 
-  // ১. Draft check
   if (test.status === "DRAFT") {
     return (
       <Shell>
@@ -46,7 +46,6 @@ export default async function ModelTestPage({
     );
   }
 
-  // ২. লগইন চেক
   if (!session?.user?.email) {
     return (
       <Shell>
@@ -60,7 +59,6 @@ export default async function ModelTestPage({
     );
   }
 
-  // ৩. সময়সীমা চেক
   if (now < test.startAt) {
     return (
       <Shell>
@@ -92,7 +90,6 @@ export default async function ModelTestPage({
     );
   }
 
-  // ৪. পেইড চেক
   if (test.isPaid) {
     return (
       <Shell>
@@ -104,7 +101,6 @@ export default async function ModelTestPage({
     );
   }
 
-  // ৫. ডুপ্লিকেট অ্যাটেম্পট চেক
   const existingAttempt = await db.attempt.findUnique({
     where: { testId_userId: { testId: test.id, userId: user.id } },
   });
@@ -133,7 +129,6 @@ export default async function ModelTestPage({
     );
   }
 
-  // ৬. সব ঠিক — পরীক্ষা শুরু
   const questions = Array.isArray(test.questions) ? (test.questions as unknown as ExamQuestion[]) : [];
 
   return (
