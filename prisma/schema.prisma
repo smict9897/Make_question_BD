@@ -19,13 +19,21 @@ enum Difficulty {
   HARD
 }
 
+enum TestStatus {
+  DRAFT
+  PUBLISHED
+}
+
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String?
-  passwordHash String?
-  role         Role     @default(STUDENT)
-  createdAt    DateTime @default(now())
+  id               String            @id @default(cuid())
+  email            String            @unique
+  name             String?
+  image            String?
+  passwordHash     String?
+  role             Role              @default(STUDENT)
+  createdAt        DateTime          @default(now())
+  attempts         Attempt[]
+  packagePurchases PackagePurchase[]
 }
 
 model Question {
@@ -80,23 +88,73 @@ model Inquiry {
 }
 
 model ModelTest {
-  id          String    @id @default(cuid())
-  title       String
-  minutes     Int
-  questionIds Json
-  createdAt   DateTime  @default(now())
-  attempts    Attempt[]
+  id         String     @id @default(cuid())
+  title      String
+  className  String
+  subject    String
+  chapter    String
+  difficulty String
+  language   String
+  minutes    Int
+  questions  Json
+  status     TestStatus @default(DRAFT)
+  isPaid     Boolean    @default(false)
+  startAt    DateTime
+  endAt      DateTime
+  createdBy  String?
+  createdAt  DateTime   @default(now())
+  attempts   Attempt[]
 }
 
 model Attempt {
-  id        String    @id @default(cuid())
-  testId    String
-  test      ModelTest @relation(fields: [testId], references: [id])
-  userId    String
-  userName  String
-  score     Int
-  total     Int
-  createdAt DateTime  @default(now())
+  id           String    @id @default(cuid())
+  testId       String
+  test         ModelTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userName     String
+  userImage    String?
+  rollNumber   String    @default("0")
+  studentClass String    @default("N/A")
+  institution  String?
+  score        Int
+  total        Int
+  timeSpent    Int       @default(0)
+  warnings     Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  @@unique([testId, userId])
+  @@index([testId])
+  @@index([userId])
+}
+
+model Package {
+  id          String            @id @default(cuid())
+  title       String
+  description String?
+  price       Int
+  durationDays Int
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  purchases   PackagePurchase[]
+}
+
+model PackagePurchase {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId     String
+  package       Package   @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  amount        Int
+  transactionId String
+  paymentNumber String
+  status        String    @default("PENDING")
+  approvedAt    DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
+  @@index([packageId])
 }
 
 model Post {
@@ -147,6 +205,7 @@ model Purchase {
   status     String   @default("PENDING")
   createdAt  DateTime @default(now())
 }
+
 model Setting {
   key   String @id
   value String
@@ -160,6 +219,7 @@ model Page {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 model TeacherProfile {
   id          String   @id @default(cuid())
   userId      String   @unique
@@ -172,18 +232,19 @@ model TeacherProfile {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
 model AiTask {
   id         String   @id @default(cuid())
   prompt     String
-  type       String   @default("BLOG") 
-  category   String?  
-  subject    String?  
-  topic      String?  
+  type       String   @default("BLOG")
+  category   String?
+  subject    String?
+  topic      String?
   status     String   @default("PENDING")
-  part       Int      @default(1)   // 🎯 নতুন: কাজের পার্ট নাম্বার
-  totalParts Int      @default(1)   // 🎯 নতুন: মোট কত পার্ট
-  batchId    String?                // 🎯 নতুন: একই আর্টিকেলের কাজগুলো চেনার জন্য
-  postId     String?                // 🎯 নতুন: ব্লগ তৈরি হলে তার আইডি সেভ হবে
+  part       Int      @default(1)
+  totalParts Int      @default(1)
+  batchId    String?
+  postId     String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
