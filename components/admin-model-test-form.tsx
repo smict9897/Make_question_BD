@@ -29,12 +29,18 @@ function toLocalInputValue(d: Date | string) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// 🎯 datetime-local এর naive string কে সঠিক টাইমজোনসহ ISO তে কনভার্ট করে
+function localInputToIso(value: string) {
+  if (!value) return value;
+  const date = new Date(value); // ব্রাউজার এটাকে ইউজারের লোকাল টাইমজোন ধরেই পার্স করে — এটাই সঠিক
+  return date.toISOString();
+}
+
 export default function AdminModelTestForm({ existing }: { existing?: ExistingTest }) {
   const isEdit = !!existing;
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
 
-  // Try to split existing.chapter back into category/topic if it has " - " separator
   const initialParts = existing?.chapter?.includes(" - ")
     ? existing.chapter.split(" - ")
     : [null, existing?.chapter ?? ""];
@@ -91,6 +97,12 @@ export default function AdminModelTestForm({ existing }: { existing?: ExistingTe
 
     const fd = new FormData(formRef.current);
     fd.set("status", status);
+
+    // 🎯 টাইমজোন ফিক্স — সঠিক ISO (UTC) ফরম্যাটে কনভার্ট করে পাঠানো হচ্ছে
+    const startAtRaw = fd.get("startAt") as string;
+    const endAtRaw = fd.get("endAt") as string;
+    if (startAtRaw) fd.set("startAt", localInputToIso(startAtRaw));
+    if (endAtRaw) fd.set("endAt", localInputToIso(endAtRaw));
 
     startTransition(() => {
       action(fd);
