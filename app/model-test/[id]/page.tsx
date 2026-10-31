@@ -21,8 +21,14 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-export default async function ModelTestPage({ params }: { params: { id: string } }) {
-  const test = await db.modelTest.findUnique({ where: { id: params.id } });
+export default async function ModelTestPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  const test = await db.modelTest.findUnique({ where: { id } });
 
   if (!test) notFound();
 
