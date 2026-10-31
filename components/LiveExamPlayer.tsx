@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { ArrowLeft, Trophy, Clock, RefreshCcw, Trash2 } from "lucide-react"; // 🎯 Edit এর জায়গায় Trash2 যুক্ত করা হলো
+import React, { useState, useEffect, useRef } from "react";
+import { ArrowLeft, Trophy, Clock, RefreshCcw, Trash2 } from "lucide-react";
 import MathText from "@/components/MathText";
 
 export const toBn = (n: number | string) => n.toString().replace(/\d/g, (d) => "০১২৩৪৫৬৭৮৯"[+d]);
@@ -21,12 +21,26 @@ export interface StudentInfo {
   institution?: string;
 }
 
+export interface AttemptResult {
+  studentName: string;
+  studentClass: string;
+  rollNumber: string;
+  institution?: string;
+  score: number;
+  total: number;
+  timeSpent: number;
+  warnings: number;
+}
+
 interface LiveExamProps {
   examTitle?: string;
   questions: ExamQuestion[];
   timeInMinutes?: number;
   studentInfo?: StudentInfo;
   isAdmin?: boolean;
+  antiCheat?: boolean;
+  leaderboardUrl?: string;
+  onSubmit?: (result: AttemptResult) => Promise<void>;
 }
 
 export default function LiveExamPlayer({
@@ -35,6 +49,9 @@ export default function LiveExamPlayer({
   timeInMinutes = 20,
   studentInfo: initialInfo,
   isAdmin = false,
+  antiCheat = false,
+  leaderboardUrl,
+  onSubmit,
 }: LiveExamProps) {
   const [isStarted, setIsStarted] = useState(false);
   const [formData, setFormData] = useState<StudentInfo>({
@@ -54,6 +71,12 @@ export default function LiveExamPlayer({
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
+  // 🎯 Anti-cheat state
+  const [warningCount, setWarningCount] = useState(0);
+  const [showCheatWarning, setShowCheatWarning] = useState(false);
+  const hasSubmittedRef = useRef(false);
+  const lastViolationRef = useRef(0);
+
   const banglaOptions = ["ক", "খ", "গ", "ঘ"];
   const totalSeconds = timeInMinutes * 60;
   const timeSpent = totalSeconds - timeLeft;
@@ -68,6 +91,51 @@ export default function LiveExamPlayer({
     return () => clearInterval(timer);
   }, [timeLeft, viewState, isStarted]);
 
+  // 🎯 অ্যান্টি-চিট মনিটরিং: ট্যাব সুইচ, ফুলস্ক্রিন এক্সিট, কপি/রাইট-ক্লিক
+  useEffect(() => {
+    if (!antiCheat || !isStarted || viewState !== "EXAM") return;
+
+    function registerViolation() {
+      const now = Date.now();
+      if (now - lastViolationRef.current < 1500) return;
+      lastViolationRef.current = now;
+
+      setWarningCount((prev) => {
+        const next = prev + 1;
+        if (next >= 3) {
+          handleFinalSubmit(next);
+        } else {
+          setShowCheatWarning(true);
+        }
+        return next;
+      });
+    }
+
+    function onVisibilityChange() {
+      if (document.hidden) registerViolation();
+    }
+    function onFullscreenChange() {
+      if (!document.fullscreenElement) registerViolation();
+    }
+    function blockEvent(e: Event) {
+      e.preventDefault();
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener("copy", blockEvent);
+    document.addEventListener("cut", blockEvent);
+    document.addEventListener("contextmenu", blockEvent);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      document.removeEventListener("copy", blockEvent);
+      document.removeEventListener("cut", blockEvent);
+      document.removeEventListener("contextmenu", blockEvent);
+    };
+  }, [antiCheat, isStarted, viewState]);
+
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -79,14 +147,28 @@ export default function LiveExamPlayer({
     setSelectedAnswers((prev) => ({ ...prev, [qIndex]: optIndex }));
   };
 
+  function requestFullscreen() {
+    const el = document.documentElement;
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch(() => {});
+    }
+  }
+
   const handleStartExam = (e: React.FormEvent) => {
     e.preventDefault();
     setStudentInfo(formData);
     setIsStarted(true);
+    if (antiCheat) {
+      requestFullscreen();
+    }
   };
 
-  const handleFinalSubmit = async () => {
+  const handleFinalSubmit = async (finalWarnings?: number) => {
+    if (hasSubmittedRef.current) return;
+    hasSubmittedRef.current = true;
+
     setShowWarningModal(false);
+    setShowCheatWarning(false);
     setViewState("RESULT");
 
     let correct = 0;
@@ -95,25 +177,43 @@ export default function LiveExamPlayer({
       if (ans !== undefined && ans === q.correctAnswer) correct++;
     });
 
-    const finalScore = correct; 
+    const finalScore = correct;
+    const warningsUsed = finalWarnings ?? warningCount;
 
     try {
-      await fetch("/api/leaderboard", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          examTitle,
+      if (onSubmit) {
+        await onSubmit({
           studentName: studentInfo?.name || "পরীক্ষার্থী",
           studentClass: studentInfo?.className || "সাধারণ",
           rollNumber: studentInfo?.roll || "১",
           institution: studentInfo?.institution || "",
           score: finalScore,
-          totalMarks: questions.length,
+          total: questions.length,
           timeSpent: Math.max(1, timeSpent),
-        }),
-      });
+          warnings: warningsUsed,
+        });
+      } else {
+        await fetch("/api/leaderboard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            examTitle,
+            studentName: studentInfo?.name || "পরীক্ষার্থী",
+            studentClass: studentInfo?.className || "সাধারণ",
+            rollNumber: studentInfo?.roll || "১",
+            institution: studentInfo?.institution || "",
+            score: finalScore,
+            totalMarks: questions.length,
+            timeSpent: Math.max(1, timeSpent),
+          }),
+        });
+      }
     } catch (e) {
-      console.error("Leaderboard save failed:", e);
+      console.error("Submit failed:", e);
+    }
+
+    if (antiCheat && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
     }
   };
 
@@ -121,7 +221,8 @@ export default function LiveExamPlayer({
     setLoadingLeaderboard(true);
     setViewState("LEADERBOARD");
     try {
-      const res = await fetch(`/api/leaderboard?examTitle=${encodeURIComponent(examTitle)}`);
+      const url = leaderboardUrl || `/api/leaderboard?examTitle=${encodeURIComponent(examTitle)}`;
+      const res = await fetch(url);
       const data = await res.json();
       if (data.success) {
         setLeaderboard(data.leaderboard || []);
@@ -133,10 +234,9 @@ export default function LiveExamPlayer({
     }
   };
 
-  // 🎯 অ্যাডমিনের জন্য ক্যান্ডিডেট ডিলিট করার ফাংশন
   const handleDeleteCandidate = async (id: string, name: string) => {
     if (!window.confirm(`আপনি কি নিশ্চিত যে "${name}" এর রেজাল্ট ডিলিট করতে চান?`)) return;
-    
+
     try {
       const res = await fetch("/api/leaderboard/delete", {
         method: "POST",
@@ -145,13 +245,13 @@ export default function LiveExamPlayer({
       });
       const data = await res.json();
       if (data.success) {
-        alert("সফলভাবে ডিলিট করা হয়েছে!");
-        fetchLeaderboard(); // লিডারবোর্ড রিফ্রেশ
+        alert("সফলভাবে ডিলিট করা হয়েছে!");
+        fetchLeaderboard();
       } else {
         alert("ডিলিট ব্যর্থ: " + data.error);
       }
     } catch (err) {
-      alert("নেটওয়ার্ক এরর!");
+      alert("নেটওয়ার্ক এরর!");
     }
   };
 
@@ -189,6 +289,11 @@ export default function LiveExamPlayer({
               <label className="block text-sm font-bold text-slate-700 mb-1">প্রতিষ্ঠানের নাম (ঐচ্ছিক)</label>
               <input value={formData.institution} onChange={(e) => setFormData({ ...formData, institution: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 focus:bg-white" />
             </div>
+            {antiCheat && (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+                ⚠️ এই পরীক্ষায় ফুলস্ক্রিন মোড চালু হবে, ট্যাব পরিবর্তন করা যাবে না এবং কপি/রাইট-ক্লিক বন্ধ থাকবে। ৩ বার নিয়ম ভঙ্গ করলে পরীক্ষা স্বয়ংক্রিয়ভাবে জমা হয়ে যাবে।
+              </div>
+            )}
             <button type="submit" className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 py-3.5 text-sm font-bold text-white shadow-md transition">
               পরীক্ষা শুরু করুন
             </button>
@@ -200,7 +305,19 @@ export default function LiveExamPlayer({
 
   return (
     <div className="min-h-screen bg-slate-100/70 pb-20 font-sans text-slate-800">
-      
+
+      {antiCheat && viewState === "EXAM" && studentInfo && (
+        <div className="pointer-events-none fixed inset-0 z-40 overflow-hidden select-none">
+          <div className="grid h-[140%] w-[140%] -rotate-[20deg] grid-cols-3 gap-10 opacity-[0.06] -translate-x-10 -translate-y-10">
+            {Array.from({ length: 24 }).map((_, i) => (
+              <div key={i} className="whitespace-nowrap text-center text-[11px] font-bold text-slate-900">
+                {studentInfo.name} • রোল {toBn(studentInfo.roll)} • {new Date().toLocaleTimeString("bn-BD")}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {viewState === "EXAM" && (
         <>
           <div className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -252,18 +369,39 @@ export default function LiveExamPlayer({
         </>
       )}
 
+      {showCheatWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm rounded-3xl border-4 border-red-500 bg-white p-6 text-center shadow-2xl">
+            <h2 className="text-xl font-bold text-red-600">⚠️ সতর্কবার্তা ({toBn(warningCount)}/৩)</h2>
+            <p className="mt-3 text-sm text-slate-700">
+              আপনি পরীক্ষার স্ক্রিন থেকে সরে গিয়েছিলেন অথবা ফুলস্ক্রিন থেকে বের হয়ে গিয়েছিলেন। এটি পরীক্ষার নিয়ম লঙ্ঘন।
+              {warningCount >= 2 ? " পরবর্তী বার করলে পরীক্ষা স্বয়ংক্রিয়ভাবে জমা হয়ে যাবে!" : " অনুগ্রহ করে এই পেজেই থাকুন।"}
+            </p>
+            <button
+              onClick={() => {
+                setShowCheatWarning(false);
+                requestFullscreen();
+              }}
+              className="mt-5 w-full rounded-xl bg-red-600 py-3 text-sm font-bold text-white"
+            >
+              বুঝেছি, চালিয়ে যাচ্ছি
+            </button>
+          </div>
+        </div>
+      )}
+
       {showWarningModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl">
             <h2 className="text-xl font-bold text-slate-900 border-b border-slate-100 pb-3">সতর্কবার্তা</h2>
             <div className="my-5 space-y-1.5 text-sm text-slate-600">
               <p>মোট প্রশ্ন: <span className="font-bold text-slate-800">{toBn(questions.length)}টি</span></p>
-              <p>উত্তর দিয়েছেন: <span className="font-bold text-emerald-600">{toBn(answeredCount)}টি</span></p>
+              <p>উত্তর দিয়েছেন: <span className="font-bold text-emerald-600">{toBn(answeredCount)}টি</span></p>
               <p className="text-red-500 font-bold">বাকি আছে: {toBn(questions.length - answeredCount)}টি</p>
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowWarningModal(false)} className="flex-1 rounded-xl bg-slate-100 hover:bg-slate-200 py-3 text-sm font-bold text-slate-700">না</button>
-              <button onClick={handleFinalSubmit} className="flex-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 py-3 text-sm font-bold text-white shadow-md">হ্যাঁ, জমা দিন</button>
+              <button onClick={() => handleFinalSubmit()} className="flex-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 py-3 text-sm font-bold text-white shadow-md">হ্যাঁ, জমা দিন</button>
             </div>
           </div>
         </div>
@@ -286,7 +424,7 @@ export default function LiveExamPlayer({
               <div className="text-2xl font-bold text-rose-600 mt-1">{toBn(questions.length - correct)}</div>
             </div>
             <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4 text-center">
-              <div className="text-xs text-slate-600 font-medium">সময় লেগেছে</div>
+              <div className="text-xs text-slate-600 font-medium">সময় লেগেছে</div>
               <div className="text-xl font-bold text-blue-600 mt-1">{toBn(formatTime(timeSpent))} মিনিট</div>
             </div>
             <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4 text-center">
@@ -299,7 +437,9 @@ export default function LiveExamPlayer({
               <Trophy size={18} /> <span>মেরিট লিস্ট / লিডারবোর্ড দেখুন</span>
             </button>
             <button onClick={() => setViewState("REVIEW")} className="w-full rounded-2xl bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 py-3 text-sm font-bold text-indigo-900 transition">উত্তরপত্র দেখুন</button>
-            <button onClick={() => window.location.reload()} className="w-full rounded-2xl bg-slate-100 hover:bg-slate-200 py-2.5 text-xs font-bold text-slate-600 transition">নতুন পরীক্ষা দিন</button>
+            {!onSubmit && (
+              <button onClick={() => window.location.reload()} className="w-full rounded-2xl bg-slate-100 hover:bg-slate-200 py-2.5 text-xs font-bold text-slate-600 transition">নতুন পরীক্ষা দিন</button>
+            )}
           </div>
         </div>
       )}
@@ -325,13 +465,13 @@ export default function LiveExamPlayer({
             <div className="text-center py-12 text-sm text-slate-500">লিডারবোর্ড লোড হচ্ছে...</div>
           ) : leaderboard.length === 0 ? (
             <div className="text-center py-10 bg-white rounded-2xl border border-slate-200 text-sm text-slate-500">
-              এখনো কোনো রেজাল্ট জমা পড়েনি।
+              এখনো কোনো রেজাল্ট জমা পড়েনি।
             </div>
           ) : (
             <>
               <div className="grid grid-cols-3 gap-2 pt-2">
                 {leaderboard.slice(0, 3).map((u, i) => {
-                  const medals = ["🥇 ১ম স্থান", "🥈 ২য় স্থান", "🥉 ৩য় স্থান"];
+                  const medals = ["🥇 ১ম স্থান", "🥈 ২য় স্থান", "🥉 ৩য় স্থান"];
                   const colors = ["border-amber-300 bg-amber-50/70", "border-slate-300 bg-slate-50/70", "border-orange-300 bg-orange-50/70"];
                   return (
                     <div key={i} className={`rounded-2xl border p-2.5 text-center shadow-xs flex flex-col justify-between ${colors[i]}`}>
@@ -349,7 +489,7 @@ export default function LiveExamPlayer({
               <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
                 <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 text-xs font-bold text-slate-600 flex justify-between">
                   <span>র‍্যাংক ও নাম</span>
-                  <span>মার্কস ও সময়</span>
+                  <span>মার্কস ও সময়</span>
                 </div>
 
                 <div className="divide-y divide-slate-100">
@@ -383,11 +523,10 @@ export default function LiveExamPlayer({
                             <div className="font-bold text-indigo-600 text-sm">{toBn(item.score)}</div>
                             <div className="text-[10px] text-slate-400">{toBn(formatTime(item.timeSpent))} মি.</div>
                           </div>
-                          
-                          {/* 🎯 এখানে এডিটের বদলে ডিলিট বাটন বসানো হলো */}
+
                           {isAdmin && (
-                            <button 
-                              onClick={() => handleDeleteCandidate(item.id, item.studentName)} 
+                            <button
+                              onClick={() => handleDeleteCandidate(item.id, item.studentName)}
                               className="p-1.5 ml-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200"
                               title="Delete Candidate"
                             >
@@ -479,7 +618,7 @@ export default function LiveExamPlayer({
                     {showExp && (
                       <div className="mt-3 rounded-xl bg-blue-50/80 border border-blue-100 p-3.5 text-xs text-slate-700 leading-relaxed">
                         <span className="font-bold text-blue-900 block mb-1">💡 সঠিক উত্তরের ব্যাখ্যা:</span>
-                        <MathText text={q.explanation || "এই প্রশ্নের জন্য কোনো অতিরিক্ত ব্যাখ্যা দেওয়া নেই।"} />
+                        <MathText text={q.explanation || "এই প্রশ্নের জন্য কোনো অতিরিক্ত ব্যাখ্যা দেওয়া নেই।"} />
                       </div>
                     )}
                   </div>
