@@ -40,7 +40,7 @@ export default function AdminModelTestForm({ existing }: { existing?: ExistingTe
   const [className, setClassName] = useState(existing?.className ?? "");
   const [subject, setSubject] = useState(existing?.subject ?? "");
   const [topicCategory, setTopicCategory] = useState(initialParts[0] ?? "");
-  const [topic, setTopic] = useState(initialParts.length > 1 ? initialParts[1] : "");
+  const [topic, setTopic] = useState(initialParts.length > 1 ? initialParts[1] ?? "" : "");
   const [isPaid, setIsPaid] = useState(existing?.isPaid ?? false);
   const [regenerate, setRegenerate] = useState(false);
 
