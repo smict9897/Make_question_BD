@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { NCTB_CLASSES } from "@/lib/nctb-data";
 import { createModelTest, updateModelTest } from "@/app/actions/model-test";
 
@@ -31,6 +31,8 @@ function toLocalInputValue(d: Date | string) {
 
 export default function AdminModelTestForm({ existing }: { existing?: ExistingTest }) {
   const isEdit = !!existing;
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isPending, startTransition] = useTransition();
 
   // Try to split existing.chapter back into category/topic if it has " - " separator
   const initialParts = existing?.chapter?.includes(" - ")
@@ -71,23 +73,36 @@ export default function AdminModelTestForm({ existing }: { existing?: ExistingTe
 
   const hasAttempts = (existing?.attemptCount ?? 0) > 0;
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  const action = isEdit ? updateModelTest : createModelTest;
+
+  function handleSubmitClick(status: "DRAFT" | "PUBLISHED") {
+    if (isPending) return;
+
     if (isEdit && regenerate) {
       const ok = window.confirm(
         hasAttempts
           ? `⚠️ এই টেস্টে ${existing?.attemptCount} জন ইতিমধ্যে অংশ নিয়েছে। নতুন প্রশ্ন জেনারেট করলে তাদের সব ফলাফল স্থায়ীভাবে মুছে যাবে এবং লিডারবোর্ড রিসেট হবে। আপনি কি নিশ্চিতভাবে এগোতে চান?`
           : "নতুন প্রশ্ন জেনারেট করা হবে। এগোতে চান?"
       );
-      if (!ok) {
-        e.preventDefault();
-      }
+      if (!ok) return;
     }
+
+    if (!formRef.current) return;
+
+    const fd = new FormData(formRef.current);
+    fd.set("status", status);
+
+    startTransition(() => {
+      action(fd);
+    });
   }
 
-  const action = isEdit ? updateModelTest : createModelTest;
-
   return (
-    <form action={action} onSubmit={handleSubmit} className="grid gap-4">
+    <form
+      ref={formRef}
+      onSubmit={(e) => e.preventDefault()}
+      className="grid gap-4"
+    >
       {isEdit && <input type="hidden" name="id" value={existing!.id} />}
       <input type="hidden" name="className" value={className} />
       <input type="hidden" name="subject" value={subject} />
@@ -281,20 +296,20 @@ export default function AdminModelTestForm({ existing }: { existing?: ExistingTe
 
       <div className="flex flex-wrap gap-3 border-t border-slate-200 pt-4">
         <button
-          type="submit"
-          name="status"
-          value="DRAFT"
-          className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 font-semibold text-slate-700 hover:bg-slate-50"
+          type="button"
+          disabled={isPending}
+          onClick={() => handleSubmitClick("DRAFT")}
+          className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
-          খসড়া হিসেবে রাখুন
+          {isPending ? "অপেক্ষা করুন..." : "খসড়া হিসেবে রাখুন"}
         </button>
         <button
-          type="submit"
-          name="status"
-          value="PUBLISHED"
-          className="rounded-xl bg-royal px-5 py-2.5 font-semibold text-white hover:opacity-90"
+          type="button"
+          disabled={isPending}
+          onClick={() => handleSubmitClick("PUBLISHED")}
+          className="rounded-xl bg-royal px-5 py-2.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
         >
-          {isEdit ? "আপডেট ও প্রকাশ করুন" : "প্রকাশ করুন (Publish)"}
+          {isPending ? "অপেক্ষা করুন..." : isEdit ? "আপডেট ও প্রকাশ করুন" : "প্রকাশ করুন (Publish)"}
         </button>
       </div>
 
