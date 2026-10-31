@@ -6,11 +6,11 @@ import TestRunner from "@/components/test-runner";
 export const dynamic = "force-dynamic";
 export default async function TestPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const t = await db.modelTest.findUnique({ where: { id } });
+  const t = await db.practiceTest.findUnique({ where: { id } });
   if (!t) notFound();
   const rows = await db.question.findMany({ where: { id: { in: t.questionIds as string[] } } });
   const qs = rows.map((r) => ({ id: r.id, text: r.text, options: r.options as Record<string, string> })); // correct answers never reach the browser
-  const top = await db.attempt.findMany({ where: { testId: id }, orderBy: [{ score: "desc" }, { createdAt: "asc" }], take: 10 });
+  const top = await db.practiceAttempt.findMany({ where: { testId: id }, orderBy: [{ score: "desc" }, { createdAt: "asc" }], take: 10 });
   const user = (await auth())?.user;
   return (
     <main className="mx-auto grid max-w-5xl gap-8 px-4 py-10 lg:grid-cols-[1fr_280px]">
