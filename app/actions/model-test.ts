@@ -63,7 +63,7 @@ async function generateMcqQuestions(params: {
   return questions;
 }
 
-const schema = z.object({
+const createSchema = z.object({
   title: z.string().min(3, "টাইটেল কমপক্ষে ৩ অক্ষর হতে হবে"),
   className: z.string().min(1, "ক্লাস নির্বাচন করুন"),
   subject: z.string().min(1, "বিষয় নির্বাচন করুন"),
@@ -82,7 +82,7 @@ export async function createModelTest(fd: FormData): Promise<void> {
   const session = await auth();
   const createdBy = session?.user?.id ?? null;
 
-  const d = schema.parse({
+  const d = createSchema.parse({
     title: fd.get("title"),
     className: fd.get("className"),
     subject: fd.get("subject"),
@@ -135,4 +135,102 @@ export async function createModelTest(fd: FormData): Promise<void> {
 
   revalidatePath("/admin/model-test");
   redirect("/admin/model-test");
+}
+
+const updateSchema = createSchema.extend({
+  id: z.string().min(1),
+});
+
+export async function updateModelTest(fd: FormData): Promise<void> {
+  await staff();
+
+  const d = updateSchema.parse({
+    id: fd.get("id"),
+    title: fd.get("title"),
+    className: fd.get("className"),
+    subject: fd.get("subject"),
+    chapter: fd.get("chapter"),
+    difficulty: fd.get("difficulty"),
+    language: fd.get("language"),
+    count: fd.get("count"),
+    minutes: fd.get("minutes"),
+    startAt: fd.get("startAt"),
+    endAt: fd.get("endAt"),
+    status: fd.get("status"),
+  });
+  const isPaid = fd.get("isPaid") === "on";
+  const regenerate = fd.get("regenerate") === "on";
+
+  const startAt = new Date(d.startAt);
+  const endAt = new Date(d.endAt);
+  if (isNaN(startAt.getTime()) || isNaN(endAt.getTime())) {
+    throw new Error("শুরু/শেষ সময় সঠিক ফরম্যাটে নেই।");
+  }
+  if (endAt <= startAt) {
+    throw new Error("শেষ সময় অবশ্যই শুরুর সময়ের পরে হতে হবে।");
+  }
+
+  const existing = await db.modelTest.findUnique({ where: { id: d.id } });
+  if (!existing) throw new Error("টেস্ট খুঁজে পাওয়া যায়নি।");
+
+  if (regenerate) {
+    const questions = await generateMcqQuestions({
+      className: d.className,
+      subject: d.subject,
+      chapter: d.chapter,
+      difficulty: d.difficulty,
+      count: d.count,
+      language: d.language,
+    });
+
+    await db.$transaction([
+      db.attempt.deleteMany({ where: { testId: d.id } }),
+      db.modelTest.update({
+        where: { id: d.id },
+        data: {
+          title: d.title,
+          className: d.className,
+          subject: d.subject,
+          chapter: d.chapter,
+          difficulty: d.difficulty,
+          language: d.language,
+          minutes: d.minutes,
+          questions: questions,
+          status: d.status,
+          isPaid,
+          startAt,
+          endAt,
+        },
+      }),
+    ]);
+  } else {
+    await db.modelTest.update({
+      where: { id: d.id },
+      data: {
+        title: d.title,
+        className: d.className,
+        subject: d.subject,
+        chapter: d.chapter,
+        difficulty: d.difficulty,
+        language: d.language,
+        minutes: d.minutes,
+        status: d.status,
+        isPaid,
+        startAt,
+        endAt,
+      },
+    });
+  }
+
+  revalidatePath("/admin/model-test");
+  redirect("/admin/model-test");
+}
+
+export async function deleteModelTest(id: string): Promise<void> {
+  await staff();
+  await db.$transaction([
+    db.attempt.deleteMany({ where: { testId: id } }),
+    db.modelTest.delete({ where: { id } }),
+  ]);
+  revalidatePath("/admin/model-test");
 }
