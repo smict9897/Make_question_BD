@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { PlusCircle, Users, Clock } from "lucide-react";
+import { PlusCircle, Users, Clock, Pencil } from "lucide-react";
 import ShareLinkButton from "@/components/share-link-button";
+import ModelTestDeleteButton from "@/components/model-test-delete-button";
 
 export const dynamic = "force-dynamic";
 
@@ -98,9 +99,14 @@ export default async function ModelTestListPage() {
                 >
                   লিডারবোর্ড দেখুন
                 </Link>
-                {t.status === "PUBLISHED" && (
-                  <ShareLinkButton url={shareUrl} />
-                )}
+                <Link
+                  href={`/admin/model-test/${t.id}/edit`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <Pencil size={14} /> Edit
+                </Link>
+                <ModelTestDeleteButton id={t.id} attemptCount={t._count.attempts} />
+                {t.status === "PUBLISHED" && <ShareLinkButton url={shareUrl} />}
               </div>
             </div>
           );
