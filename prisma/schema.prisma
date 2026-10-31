@@ -87,6 +87,29 @@ model Inquiry {
   createdAt DateTime @default(now())
 }
 
+// ================== পুরনো ফিচার: Student নিজে Question Bank থেকে Practice Test বানায় ==================
+model PracticeTest {
+  id          String            @id @default(cuid())
+  title       String
+  subject     String
+  minutes     Int
+  questionIds Json
+  createdAt   DateTime          @default(now())
+  attempts    PracticeAttempt[]
+}
+
+model PracticeAttempt {
+  id        String       @id @default(cuid())
+  testId    String
+  test      PracticeTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  userId    String
+  userName  String
+  score     Int
+  total     Int
+  createdAt DateTime     @default(now())
+}
+
+// ================== নতুন ফিচার: Admin AI দিয়ে Scheduled Model Test বানায় ==================
 model ModelTest {
   id         String     @id @default(cuid())
   title      String
@@ -129,14 +152,14 @@ model Attempt {
 }
 
 model Package {
-  id          String            @id @default(cuid())
-  title       String
-  description String?
-  price       Int
+  id           String            @id @default(cuid())
+  title        String
+  description  String?
+  price        Int
   durationDays Int
-  active      Boolean           @default(true)
-  createdAt   DateTime          @default(now())
-  purchases   PackagePurchase[]
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  purchases    PackagePurchase[]
 }
 
 model PackagePurchase {
