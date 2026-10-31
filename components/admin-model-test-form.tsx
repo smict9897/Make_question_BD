@@ -2,17 +2,47 @@
 
 import { useMemo, useState } from "react";
 import { NCTB_CLASSES } from "@/lib/nctb-data";
-import { createModelTest } from "@/app/actions/model-test";
+import { createModelTest, updateModelTest } from "@/app/actions/model-test";
 
 const f = "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm";
 const label = "mb-1 block text-sm font-semibold text-slate-700";
 
-export default function AdminModelTestForm() {
-  const [className, setClassName] = useState("");
-  const [subject, setSubject] = useState("");
-  const [topicCategory, setTopicCategory] = useState("");
-  const [topic, setTopic] = useState("");
-  const [isPaid, setIsPaid] = useState(false);
+type ExistingTest = {
+  id: string;
+  title: string;
+  className: string;
+  subject: string;
+  chapter: string;
+  difficulty: string;
+  language: string;
+  minutes: number;
+  isPaid: boolean;
+  status: string;
+  startAt: Date | string;
+  endAt: Date | string;
+  attemptCount: number;
+};
+
+function toLocalInputValue(d: Date | string) {
+  const date = new Date(d);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export default function AdminModelTestForm({ existing }: { existing?: ExistingTest }) {
+  const isEdit = !!existing;
+
+  // Try to split existing.chapter back into category/topic if it has " - " separator
+  const initialParts = existing?.chapter?.includes(" - ")
+    ? existing.chapter.split(" - ")
+    : [null, existing?.chapter ?? ""];
+
+  const [className, setClassName] = useState(existing?.className ?? "");
+  const [subject, setSubject] = useState(existing?.subject ?? "");
+  const [topicCategory, setTopicCategory] = useState(initialParts[0] ?? "");
+  const [topic, setTopic] = useState(initialParts.length > 1 ? initialParts[1] : "");
+  const [isPaid, setIsPaid] = useState(existing?.isPaid ?? false);
+  const [regenerate, setRegenerate] = useState(false);
 
   const selectedClassData = useMemo(
     () => NCTB_CLASSES.find((c) => c.class === className),
@@ -39,16 +69,33 @@ export default function AdminModelTestForm() {
       : ""
     : topic;
 
+  const hasAttempts = (existing?.attemptCount ?? 0) > 0;
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    if (isEdit && regenerate) {
+      const ok = window.confirm(
+        hasAttempts
+          ? `⚠️ এই টেস্টে ${existing?.attemptCount} জন ইতিমধ্যে অংশ নিয়েছে। নতুন প্রশ্ন জেনারেট করলে তাদের সব ফলাফল স্থায়ীভাবে মুছে যাবে এবং লিডারবোর্ড রিসেট হবে। আপনি কি নিশ্চিতভাবে এগোতে চান?`
+          : "নতুন প্রশ্ন জেনারেট করা হবে। এগোতে চান?"
+      );
+      if (!ok) {
+        e.preventDefault();
+      }
+    }
+  }
+
+  const action = isEdit ? updateModelTest : createModelTest;
+
   return (
-    <form action={createModelTest} className="grid gap-4">
-      {/* Hidden fields that carry final resolved values */}
+    <form action={action} onSubmit={handleSubmit} className="grid gap-4">
+      {isEdit && <input type="hidden" name="id" value={existing!.id} />}
       <input type="hidden" name="className" value={className} />
       <input type="hidden" name="subject" value={subject} />
       <input type="hidden" name="chapter" value={finalChapter} />
 
       <div>
         <label className={label}>টেস্টের টাইটেল *</label>
-        <input name="title" required className={f} placeholder="যেমন: মডেল টেস্ট - সাধারণ জ্ঞান (প্রথম পর্ব)" />
+        <input name="title" required defaultValue={existing?.title} className={f} placeholder="যেমন: মডেল টেস্ট - সাধারণ জ্ঞান (প্রথম পর্ব)" />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -151,7 +198,7 @@ export default function AdminModelTestForm() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
           <label className={label}>কঠিনতা *</label>
-          <select name="difficulty" className={f} required defaultValue="MEDIUM">
+          <select name="difficulty" className={f} required defaultValue={existing?.difficulty ?? "MEDIUM"}>
             <option value="EASY">সহজ</option>
             <option value="MEDIUM">মাঝারি</option>
             <option value="HARD">কঠিন</option>
@@ -159,7 +206,7 @@ export default function AdminModelTestForm() {
         </div>
         <div>
           <label className={label}>ভাষা *</label>
-          <select name="language" className={f} required defaultValue="Bengali">
+          <select name="language" className={f} required defaultValue={existing?.language ?? "Bengali"}>
             <option value="Bengali">বাংলা</option>
             <option value="English">English</option>
           </select>
@@ -167,21 +214,38 @@ export default function AdminModelTestForm() {
         <div>
           <label className={label}>প্রশ্ন সংখ্যা *</label>
           <input name="count" type="number" min={5} max={100} defaultValue={20} className={f} required />
+          {isEdit && (
+            <p className="mt-1 text-xs text-amber-600">
+              * শুধু &quot;নতুন প্রশ্ন জেনারেট&quot; চালু করলেই এই সংখ্যা কার্যকর হবে।
+            </p>
+          )}
         </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
           <label className={label}>সময় (মিনিট) *</label>
-          <input name="minutes" type="number" min={1} max={240} defaultValue={30} className={f} required />
+          <input name="minutes" type="number" min={1} max={240} defaultValue={existing?.minutes ?? 30} className={f} required />
         </div>
         <div>
           <label className={label}>শুরুর তারিখ ও সময় *</label>
-          <input name="startAt" type="datetime-local" className={f} required />
+          <input
+            name="startAt"
+            type="datetime-local"
+            className={f}
+            required
+            defaultValue={existing ? toLocalInputValue(existing.startAt) : undefined}
+          />
         </div>
         <div>
           <label className={label}>শেষের তারিখ ও সময় *</label>
-          <input name="endAt" type="datetime-local" className={f} required />
+          <input
+            name="endAt"
+            type="datetime-local"
+            className={f}
+            required
+            defaultValue={existing ? toLocalInputValue(existing.endAt) : undefined}
+          />
         </div>
       </div>
 
@@ -199,6 +263,22 @@ export default function AdminModelTestForm() {
         </label>
       </div>
 
+      {isEdit && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+          <input
+            type="checkbox"
+            id="regenerate"
+            name="regenerate"
+            checked={regenerate}
+            onChange={(e) => setRegenerate(e.target.checked)}
+            className="h-5 w-5 rounded border-amber-400"
+          />
+          <label htmlFor="regenerate" className="text-sm font-semibold text-amber-800 select-none">
+            ⚠️ নতুন প্রশ্ন জেনারেট করুন (এটি করলে আগের সব ফলাফল মুছে যাবে)
+          </label>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-3 border-t border-slate-200 pt-4">
         <button
           type="submit"
@@ -214,7 +294,7 @@ export default function AdminModelTestForm() {
           value="PUBLISHED"
           className="rounded-xl bg-royal px-5 py-2.5 font-semibold text-white hover:opacity-90"
         >
-          প্রকাশ করুন (Publish)
+          {isEdit ? "আপডেট ও প্রকাশ করুন" : "প্রকাশ করুন (Publish)"}
         </button>
       </div>
 
