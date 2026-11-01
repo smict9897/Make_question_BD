@@ -14,6 +14,65 @@ type AiQuestion = {
   explanation?: string;
 };
 
+// অপশনের শুরুতে "ক)", "খ.", "A)" ইত্যাদি লেবেল থাকলে সরিয়ে ফেলে
+// (শাফল করলে লেবেল উল্টাপাল্টা হয়ে যেত)
+function stripOptionLabel(text: string): string {
+  return text
+    .replace(/^\s*(?:[কখগঘ]|[A-Da-d])\s*[\)\.\:]\s+/, "")
+    .trim();
+}
+
+// প্রতিটি প্রশ্নের অপশন র‍্যান্ডমভাবে ওলটপালট করে (Fisher-Yates)
+// এবং সঠিক উত্তরের নতুন ইনডেক্স হিসাব করে বসায়
+function shuffleQuestionOptions(questions: any[]): AiQuestion[] {
+  const result: AiQuestion[] = [];
+
+  for (const q of questions) {
+    if (!q || typeof q.question !== "string" || !Array.isArray(q.options)) {
+      continue;
+    }
+
+    const options: string[] = q.options.map((o: unknown) =>
+      stripOptionLabel(String(o ?? ""))
+    );
+    const correctIndex = Number(q.correctAnswer);
+
+    // অপশন কমপক্ষে ২টা না থাকলে বা সঠিক উত্তরের ইনডেক্স ভুল হলে বাদ
+    if (
+      options.length < 2 ||
+      !Number.isInteger(correctIndex) ||
+      correctIndex < 0 ||
+      correctIndex >= options.length
+    ) {
+      continue;
+    }
+
+    // [অপশনের লেখা, এটা সঠিক কিনা] জোড়া বানাই
+    const pairs = options.map((text, i) => ({
+      text,
+      isCorrect: i === correctIndex,
+    }));
+
+    // Fisher-Yates shuffle
+    for (let i = pairs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
+    }
+
+    const newCorrectIndex = pairs.findIndex((p) => p.isCorrect);
+
+    result.push({
+      type: q.type || "MCQ",
+      question: q.question,
+      options: pairs.map((p) => p.text),
+      correctAnswer: newCorrectIndex,
+      explanation: typeof q.explanation === "string" ? q.explanation : "",
+    });
+  }
+
+  return result;
+}
+
 async function generateMcqQuestions(params: {
   className: string;
   subject: string;
@@ -60,7 +119,13 @@ async function generateMcqQuestions(params: {
   if (!Array.isArray(questions) || questions.length === 0) {
     throw new Error("প্রশ্ন তৈরি করা যায়নি, আবার চেষ্টা করুন।");
   }
-  return questions;
+
+  // সঠিক উত্তর সবসময় একই জায়গায় থাকা ঠেকাতে অপশন শাফল
+  const shuffled = shuffleQuestionOptions(questions);
+  if (shuffled.length === 0) {
+    throw new Error("প্রশ্নগুলো সঠিক ফরম্যাটে আসেনি, আবার চেষ্টা করুন।");
+  }
+  return shuffled;
 }
 
 const createSchema = z.object({
@@ -102,135 +167,4 @@ export async function createModelTest(fd: FormData): Promise<void> {
   if (isNaN(startAt.getTime()) || isNaN(endAt.getTime())) {
     throw new Error("শুরু/শেষ সময় সঠিক ফরম্যাটে নেই।");
   }
-  if (endAt <= startAt) {
-    throw new Error("শেষ সময় অবশ্যই শুরুর সময়ের পরে হতে হবে।");
-  }
-
-  const questions = await generateMcqQuestions({
-    className: d.className,
-    subject: d.subject,
-    chapter: d.chapter,
-    difficulty: d.difficulty,
-    count: d.count,
-    language: d.language,
-  });
-
-  await db.modelTest.create({
-    data: {
-      title: d.title,
-      className: d.className,
-      subject: d.subject,
-      chapter: d.chapter,
-      difficulty: d.difficulty,
-      language: d.language,
-      minutes: d.minutes,
-      questions: questions,
-      status: d.status,
-      isPaid,
-      startAt,
-      endAt,
-      createdBy,
-    },
-  });
-
-  revalidatePath("/admin/model-test");
-  redirect("/admin/model-test");
-}
-
-const updateSchema = createSchema.extend({
-  id: z.string().min(1),
-});
-
-export async function updateModelTest(fd: FormData): Promise<void> {
-  await staff();
-
-  const d = updateSchema.parse({
-    id: fd.get("id"),
-    title: fd.get("title"),
-    className: fd.get("className"),
-    subject: fd.get("subject"),
-    chapter: fd.get("chapter"),
-    difficulty: fd.get("difficulty"),
-    language: fd.get("language"),
-    count: fd.get("count"),
-    minutes: fd.get("minutes"),
-    startAt: fd.get("startAt"),
-    endAt: fd.get("endAt"),
-    status: fd.get("status"),
-  });
-  const isPaid = fd.get("isPaid") === "on";
-  const regenerate = fd.get("regenerate") === "on";
-
-  const startAt = new Date(d.startAt);
-  const endAt = new Date(d.endAt);
-  if (isNaN(startAt.getTime()) || isNaN(endAt.getTime())) {
-    throw new Error("শুরু/শেষ সময় সঠিক ফরম্যাটে নেই।");
-  }
-  if (endAt <= startAt) {
-    throw new Error("শেষ সময় অবশ্যই শুরুর সময়ের পরে হতে হবে।");
-  }
-
-  const existing = await db.modelTest.findUnique({ where: { id: d.id } });
-  if (!existing) throw new Error("টেস্ট খুঁজে পাওয়া যায়নি।");
-
-  if (regenerate) {
-    const questions = await generateMcqQuestions({
-      className: d.className,
-      subject: d.subject,
-      chapter: d.chapter,
-      difficulty: d.difficulty,
-      count: d.count,
-      language: d.language,
-    });
-
-    await db.$transaction([
-      db.attempt.deleteMany({ where: { testId: d.id } }),
-      db.modelTest.update({
-        where: { id: d.id },
-        data: {
-          title: d.title,
-          className: d.className,
-          subject: d.subject,
-          chapter: d.chapter,
-          difficulty: d.difficulty,
-          language: d.language,
-          minutes: d.minutes,
-          questions: questions,
-          status: d.status,
-          isPaid,
-          startAt,
-          endAt,
-        },
-      }),
-    ]);
-  } else {
-    await db.modelTest.update({
-      where: { id: d.id },
-      data: {
-        title: d.title,
-        className: d.className,
-        subject: d.subject,
-        chapter: d.chapter,
-        difficulty: d.difficulty,
-        language: d.language,
-        minutes: d.minutes,
-        status: d.status,
-        isPaid,
-        startAt,
-        endAt,
-      },
-    });
-  }
-
-  revalidatePath("/admin/model-test");
-  redirect("/admin/model-test");
-}
-
-export async function deleteModelTest(id: string): Promise<void> {
-  await staff();
-  await db.$transaction([
-    db.attempt.deleteMany({ where: { testId: id } }),
-    db.modelTest.delete({ where: { id } }),
-  ]);
-  revalidatePath("/admin/model-test");
-}
+  
