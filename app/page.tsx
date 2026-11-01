@@ -12,6 +12,7 @@ import { getSite } from "@/lib/site";
 import { catPath } from "@/lib/cat-paths";
 import RecentArticles from "@/components/RecentArticles";
 import PromoBookPopup from "@/components/PromoBookPopup";
+import HomeModelTestBanner from "@/components/home-model-test-banner";
 import { getPromoSettings } from "@/app/actions/promo";
 
 export const dynamic = "force-dynamic";
@@ -131,6 +132,9 @@ export default async function Home() {
         </div>
       </section>
 
+      {/* 🎯 লাইভ মডেল টেস্ট ব্যানার (টেস্ট না থাকলে নিজে থেকেই লুকিয়ে থাকবে) */}
+      <HomeModelTestBanner />
+
       <div className="mx-auto max-w-6xl px-4">
         {/* প্রশ্নপত্র তৈরি করার ব্যানার */}
         <Link
@@ -217,9 +221,11 @@ export default async function Home() {
         </section>
       </div>
 
-      {/* 🎯 ২. হোমপেজে স্বয়ংক্রিয় প্রমোশনাল পপ-আপ মডাল */}
+      {/* 🎯 ২. হোমপেজে স্বয়ংক্রিয় প্রমোশনাল পপ-আপ মডাল */}
       <PromoBookPopup promo={promo} />
 
     </main>
   );
 }
+
+// ===== ফাইল শেষ =====
