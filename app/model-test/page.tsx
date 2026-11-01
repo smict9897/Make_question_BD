@@ -23,6 +23,34 @@ function fmtDate(d: Date) {
   });
 }
 
+function timeAgo(date: Date, now: Date) {
+  const diffMs = now.getTime() - date.getTime();
+  const future = diffMs < 0;
+  const sec = Math.floor(Math.abs(diffMs) / 1000);
+  const suffix = future ? "পরে" : "আগে";
+
+  if (sec < 60) return future ? "এখনই" : "এইমাত্র";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${bn(min)} মিনিট ${suffix}`;
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${bn(hour)} ঘণ্টা ${suffix}`;
+  const day = Math.floor(hour / 24);
+  if (day < 30) return `${bn(day)} দিন ${suffix}`;
+  const month = Math.floor(day / 30);
+  return `${bn(month)} মাস ${suffix}`;
+}
+
+// Attempt-এ createdAt না থাকলে null ফেরত দেয়, পেজ ভাঙে না
+async function countRecentAttempts(since: Date): Promise<number | null> {
+  try {
+    return await (db.attempt as any).count({
+      where: { createdAt: { gte: since } },
+    });
+  } catch {
+    return null;
+  }
+}
+
 const FILTERS = [
   { key: "all", label: "সব" },
   { key: "live", label: "🟢 চলছে" },
@@ -32,7 +60,12 @@ const FILTERS = [
   { key: "paid", label: "প্রিমিয়াম" },
 ];
 
-type SearchParams = Promise<{ filter?: string; page?: string }>;
+type SearchParams = Promise<{
+  filter?: string;
+  page?: string;
+  subject?: string;
+  q?: string;
+}>;
 
 export default async function ModelTestFeedPage({
   searchParams,
@@ -41,6 +74,8 @@ export default async function ModelTestFeedPage({
 }) {
   const sp = await searchParams;
   const filter = FILTERS.some((f) => f.key === sp.filter) ? (sp.filter as string) : "all";
+  const subject = (sp.subject ?? "").trim();
+  const q = (sp.q ?? "").trim().slice(0, 60);
   const now = new Date();
 
   const where: Prisma.ModelTestWhereInput = { status: "PUBLISHED" };
@@ -52,6 +87,8 @@ export default async function ModelTestFeedPage({
   }
   if (filter === "upcoming") where.startAt = { gt: now };
   if (filter === "ended") where.endAt = { lt: now };
+  if (subject) where.subject = subject;
+  if (q) where.title = { contains: q };
 
   const total = await db.modelTest.count({ where });
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -90,13 +127,23 @@ export default async function ModelTestFeedPage({
   const countMap = new Map(counts.map((c) => [c.testId, c._count._all]));
 
   // স্ট্যাটস বার
-  const [totalTests, liveTests, totalAttempts] = await Promise.all([
-    db.modelTest.count({ where: { status: "PUBLISHED" } }),
-    db.modelTest.count({
-      where: { status: "PUBLISHED", startAt: { lte: now }, endAt: { gte: now } },
-    }),
-    db.attempt.count(),
-  ]);
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const [totalTests, liveTests, totalAttempts, recentAttempts, subjectRows] =
+    await Promise.all([
+      db.modelTest.count({ where: { status: "PUBLISHED" } }),
+      db.modelTest.count({
+        where: { status: "PUBLISHED", startAt: { lte: now }, endAt: { gte: now } },
+      }),
+      db.attempt.count(),
+      countRecentAttempts(dayAgo),
+      db.modelTest.findMany({
+        where: { status: "PUBLISHED" },
+        distinct: ["subject"],
+        select: { subject: true },
+        orderBy: { subject: "asc" },
+      }),
+    ]);
+  const subjects = subjectRows.map((s) => s.subject);
 
   // লগইন করা থাকলে কোন টেস্ট দিয়েছেন
   const attemptedSet = new Set<string>();
@@ -116,10 +163,12 @@ export default async function ModelTestFeedPage({
   }
 
   function href(f: string, p: number) {
-    const q = new URLSearchParams();
-    if (f !== "all") q.set("filter", f);
-    if (p > 1) q.set("page", String(p));
-    const s = q.toString();
+    const params = new URLSearchParams();
+    if (f !== "all") params.set("filter", f);
+    if (subject) params.set("subject", subject);
+    if (q) params.set("q", q);
+    if (p > 1) params.set("page", String(p));
+    const s = params.toString();
     return s ? `/model-test?${s}` : "/model-test";
   }
 
@@ -128,21 +177,44 @@ export default async function ModelTestFeedPage({
     pageNumbers.push(i);
   }
 
+  const hasActiveSearch = Boolean(subject || q);
+
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-700 via-purple-700 to-pink-600 px-4 py-8 text-white">
-        <div className="mx-auto max-w-6xl">
-          <h1 className="text-2xl font-extrabold sm:text-3xl">🎯 লাইভ মডেল টেস্ট</h1>
-          <p className="mt-1 text-sm opacity-90">
-            পরীক্ষা দিন, র‍্যাংক দেখুন, নিজেকে যাচাই করুন।
-          </p>
+      {/* Premium banner */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-4 py-6 text-white">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-xl font-extrabold sm:text-2xl">
+              <span>🎯 লাইভ মডেল টেস্ট — </span>
+              <span className="text-amber-400">প্রিমিয়াম</span>
+              <span> ব্যাচে যোগ দিন</span>
+            </h1>
+            <p className="mt-1 text-xs text-slate-300 sm:text-sm">
+              সব পেইড পরীক্ষা আনলক করুন • র‍্যাংক দেখুন • নিজেকে যাচাই করুন
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="flex h-10 items-center rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 px-4 text-sm font-bold text-white shadow">
+              👑 Join Premium · শীঘ্রই আসছে
+            </span>
+            <a
+              href="#search"
+              className="flex h-10 items-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 px-4 text-sm font-bold text-white shadow"
+            >
+              🔍 বিষয়ভিত্তিক খুঁজুন
+            </a>
+          </div>
         </div>
       </div>
 
       <div className="mx-auto max-w-6xl px-4 py-5">
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div
+          className={`grid grid-cols-2 gap-2 sm:gap-3 ${
+            recentAttempts !== null ? "sm:grid-cols-4" : "sm:grid-cols-3"
+          }`}
+        >
           <div className="rounded-xl bg-indigo-50 p-3 text-center">
             <div className="text-xl font-extrabold text-indigo-600 sm:text-2xl">
               {bn(totalTests)}
@@ -155,6 +227,16 @@ export default async function ModelTestFeedPage({
             </div>
             <div className="text-[11px] font-semibold text-slate-500">এখন চলছে</div>
           </div>
+          {recentAttempts !== null && (
+            <div className="rounded-xl bg-amber-50 p-3 text-center">
+              <div className="text-xl font-extrabold text-amber-600 sm:text-2xl">
+                {bn(recentAttempts)}
+              </div>
+              <div className="text-[11px] font-semibold text-slate-500">
+                ২৪ ঘণ্টার অংশগ্রহণ
+              </div>
+            </div>
+          )}
           <div className="rounded-xl bg-pink-50 p-3 text-center">
             <div className="text-xl font-extrabold text-pink-600 sm:text-2xl">
               {bn(totalAttempts)}
@@ -163,8 +245,51 @@ export default async function ModelTestFeedPage({
           </div>
         </div>
 
+        {/* Search + Subject */}
+        <form
+          id="search"
+          method="get"
+          action="/model-test"
+          className="mt-4 flex scroll-mt-20 flex-col gap-2 sm:flex-row"
+        >
+          {filter !== "all" && <input type="hidden" name="filter" value={filter} />}
+          <input
+            type="text"
+            name="q"
+            defaultValue={q}
+            placeholder="🔍 পরীক্ষার নাম খুঁজুন..."
+            className="h-10 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-indigo-400"
+          />
+          <select
+            name="subject"
+            defaultValue={subject}
+            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400"
+          >
+            <option value="">📚 সব বিষয়</option>
+            {subjects.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <button
+            type="submit"
+            className="h-10 rounded-xl bg-indigo-600 px-5 text-sm font-bold text-white hover:bg-indigo-700"
+          >
+            খুঁজুন
+          </button>
+          {hasActiveSearch && (
+            <Link
+              href={filter !== "all" ? `/model-test?filter=${filter}` : "/model-test"}
+              className="flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600"
+            >
+              ✕ মুছুন
+            </Link>
+          )}
+        </form>
+
         {/* Filters */}
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
           {FILTERS.map((f) => (
             <Link
               key={f.key}
@@ -229,16 +354,21 @@ export default async function ModelTestFeedPage({
                   />
                   <div className="p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                          t.isPaid
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-emerald-100 text-emerald-700"
-                        }`}
-                      >
-                        {t.isPaid ? "👑 PREMIUM" : "FREE"}
-                      </span>
-                      <span className="text-[11px] font-semibold text-slate-500">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span
+                          className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                            t.isPaid
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-emerald-100 text-emerald-700"
+                          }`}
+                        >
+                          {t.isPaid ? "👑 PREMIUM" : "FREE"}
+                        </span>
+                        <span className="truncate text-[11px] text-slate-400">
+                          {timeAgo(t.startAt, now)}
+                        </span>
+                      </div>
+                      <span className="shrink-0 text-[11px] font-semibold text-slate-500">
                         👥 {bn(participants)} জন
                       </span>
                     </div>
@@ -340,3 +470,5 @@ export default async function ModelTestFeedPage({
     </div>
   );
 }
+
+// ===== ফাইল শেষ =====
