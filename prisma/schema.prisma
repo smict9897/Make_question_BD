@@ -144,6 +144,7 @@ model Attempt {
   total        Int
   timeSpent    Int       @default(0)
   warnings     Int       @default(0)
+  answers      Json? 
   createdAt    DateTime  @default(now())
 
   @@unique([testId, userId])
