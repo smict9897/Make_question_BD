@@ -86,7 +86,7 @@ export default async function Admin() {
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="AI questions" value={ai} icon={Sparkles} tint="bg-blue-100 text-royal" />
-        <Stat label="Model tests" value={tests} icon={ListChecks} tint="bg-green-100 text-green-600" />
+        <Stat label="Model tests" value={model-test} icon={ListChecks} tint="bg-green-100 text-green-600" />
         <Stat label="Inquiries" value={inquiries} icon={Mail} tint="bg-orange-100 text-hire" />
         <Stat label="Job circulars" value={jobs} icon={Briefcase} tint="bg-purple-100 text-purple-600" />
       </div>
