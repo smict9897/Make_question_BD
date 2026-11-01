@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import ModelTestLoginButton from "@/components/model-test-login-button";
+import ProfileNameEditor from "@/components/profile-name-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -154,7 +155,7 @@ export default async function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
-      {/* Greeting */}
+      {/* Greeting + নাম এডিট */}
       <div className="flex items-center gap-3">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -169,10 +170,12 @@ export default async function ProfilePage() {
             {displayName.charAt(0)}
           </div>
         )}
-        <div className="min-w-0">
-          <h1 className="truncate text-lg font-bold text-slate-800 sm:text-xl">
-            {greeting.text}, {displayName} {greeting.icon}
-          </h1>
+        <div className="min-w-0 flex-1">
+          <ProfileNameEditor
+            initialName={displayName}
+            greetingText={greeting.text}
+            greetingIcon={greeting.icon}
+          />
           <p className="truncate text-xs text-slate-500">{user.email}</p>
         </div>
       </div>
