@@ -14,6 +14,7 @@ export type SubmitAttemptInput = {
   total: number;
   timeSpent: number;
   warnings: number;
+  answers?: Record<number, number>;
 };
 
 export async function submitModelTestAttempt(input: SubmitAttemptInput) {
@@ -34,13 +35,22 @@ export async function submitModelTestAttempt(input: SubmitAttemptInput) {
     return { success: false, error: "টেস্ট খুঁজে পাওয়া যায়নি।" };
   }
 
-  // ডুপ্লিকেট চেক — আগে থেকে জমা থাকলে চুপচাপ ignore করে পুরনোটাই রাখবে
   const existing = await db.attempt.findUnique({
     where: { testId_userId: { testId: input.testId, userId: user.id } },
   });
 
   if (existing) {
     return { success: true, alreadySubmitted: true };
+  }
+
+  // উত্তরগুলো { "0": 2, "1": 0, ... } আকারে সেভ হবে (প্রশ্নের ইনডেক্স → অপশনের ইনডেক্স)
+  const answersToSave: Record<string, number> = {};
+  if (input.answers) {
+    for (const [key, value] of Object.entries(input.answers)) {
+      if (typeof value === "number") {
+        answersToSave[String(key)] = value;
+      }
+    }
   }
 
   await db.attempt.create({
@@ -56,6 +66,7 @@ export async function submitModelTestAttempt(input: SubmitAttemptInput) {
       total: input.total,
       timeSpent: input.timeSpent,
       warnings: input.warnings,
+      answers: answersToSave,
     },
   });
 
