@@ -273,7 +273,7 @@ model AiTask {
   updatedAt  DateTime @updatedAt
 }
 model BookStore {
-  id                String   @id @default(uuid()) @db.Text
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text")) @db.Text
   title             String   @db.Text
   author            String   @db.Text
   category          String   @db.Text
@@ -299,4 +299,19 @@ model BookStore {
   createdAt         DateTime @default(now()) @db.Timestamp(3)
 
   @@map("BookStore")
+}
+
+model ExamLeaderboard {
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text")) @db.Text
+  examTitle    String   @db.Text
+  studentName  String   @db.Text
+  studentClass String   @db.Text
+  rollNumber   String   @db.Text
+  institution  String?  @db.Text
+  score        Float
+  totalMarks   Int
+  timeSpent    Int
+  createdAt    DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("ExamLeaderboard")
 }
