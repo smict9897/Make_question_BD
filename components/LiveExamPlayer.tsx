@@ -30,6 +30,7 @@ export interface AttemptResult {
   total: number;
   timeSpent: number;
   warnings: number;
+  answers?: Record<number, number>;
 }
 
 interface LiveExamProps {
@@ -76,6 +77,12 @@ export default function LiveExamPlayer({
   const [showCheatWarning, setShowCheatWarning] = useState(false);
   const hasSubmittedRef = useRef(false);
   const lastViolationRef = useRef(0);
+
+  // সর্বশেষ উত্তর ও সময় ধরে রাখার জন্য (অটো-সাবমিটে পুরোনো ডেটা যাওয়া ঠেকায়)
+  const selectedAnswersRef = useRef<Record<number, number>>({});
+  const timeLeftRef = useRef(timeInMinutes * 60);
+  selectedAnswersRef.current = selectedAnswers;
+  timeLeftRef.current = timeLeft;
 
   const banglaOptions = ["ক", "খ", "গ", "ঘ"];
   const totalSeconds = timeInMinutes * 60;
@@ -171,13 +178,17 @@ export default function LiveExamPlayer({
     setShowCheatWarning(false);
     setViewState("RESULT");
 
-    let correct = 0;
+    // সবসময় সর্বশেষ উত্তর ও সময় ব্যবহার করা হচ্ছে
+    const answersNow = selectedAnswersRef.current;
+    const spentNow = totalSeconds - timeLeftRef.current;
+
+    let correctNow = 0;
     questions.forEach((q, idx) => {
-      const ans = selectedAnswers[idx];
-      if (ans !== undefined && ans === q.correctAnswer) correct++;
+      const ans = answersNow[idx];
+      if (ans !== undefined && ans === q.correctAnswer) correctNow++;
     });
 
-    const finalScore = correct;
+    const finalScore = correctNow;
     const warningsUsed = finalWarnings ?? warningCount;
 
     try {
@@ -189,8 +200,9 @@ export default function LiveExamPlayer({
           institution: studentInfo?.institution || "",
           score: finalScore,
           total: questions.length,
-          timeSpent: Math.max(1, timeSpent),
+          timeSpent: Math.max(1, spentNow),
           warnings: warningsUsed,
+          answers: answersNow,
         });
       } else {
         await fetch("/api/leaderboard", {
@@ -204,7 +216,7 @@ export default function LiveExamPlayer({
             institution: studentInfo?.institution || "",
             score: finalScore,
             totalMarks: questions.length,
-            timeSpent: Math.max(1, timeSpent),
+            timeSpent: Math.max(1, spentNow),
           }),
         });
       }
