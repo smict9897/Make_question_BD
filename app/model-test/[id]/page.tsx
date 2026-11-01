@@ -128,6 +128,12 @@ export default async function ModelTestPage({
 
         <div className="mt-5 grid w-full max-w-sm grid-cols-2 gap-3">
           <Link
+            href={`/model-test/${test.id}/answers`}
+            className="col-span-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow hover:opacity-90"
+          >
+            📄 উত্তরপত্র দেখুন
+          </Link>
+          <Link
             href={`/model-test/${test.id}/leaderboard`}
             className="rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 text-sm font-bold text-white shadow hover:opacity-90"
           >
