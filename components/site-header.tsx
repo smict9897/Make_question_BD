@@ -41,7 +41,7 @@ const navTree: NavItem[] = [
   { label: "জব", href: "/jobs" },
   { label: "ই-বুক", href: "/library" },
   { label: "ভিডিও", href: "/videos" },
-  { label: "মডেল টেস্ট", href: "/tests" },
+  { label: "মডেল টেস্ট", href: "/model-test" },
   { label: "টুলস", href: "/tools" },
   { label: "ব্লগ", href: "/blog" },
 ];
