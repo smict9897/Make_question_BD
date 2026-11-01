@@ -30,6 +30,7 @@ export default function ModelTestClient({ testId, examTitle, questions, minutes,
       total: result.total,
       timeSpent: result.timeSpent,
       warnings: result.warnings,
+      answers: result.answers,
     });
     router.refresh();
   }
