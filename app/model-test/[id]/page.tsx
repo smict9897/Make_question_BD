@@ -1,10 +1,23 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import ModelTestLoginButton from "@/components/model-test-login-button";
 import ModelTestClient from "@/components/model-test-client";
 import type { ExamQuestion } from "@/components/LiveExamPlayer";
+
+const BN_DIGITS = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
+
+function bn(n: number | string) {
+  return String(n).replace(/\d/g, (d) => BN_DIGITS[Number(d)]);
+}
+
+function formatDuration(totalSeconds: number) {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${bn(m)} মি. ${bn(s)} সে.`;
+}
 
 function formatDateTime(d: Date) {
   return new Date(d).toLocaleString("bn-BD", {
@@ -59,6 +72,78 @@ export default async function ModelTestPage({
     );
   }
 
+  const user = await db.user.findUnique({ where: { email: session.user.email } });
+  if (!user) {
+    return (
+      <Shell>
+        <h1 className="text-lg font-bold text-slate-800">ইউজার পাওয়া যায়নি, আবার লগইন করুন।</h1>
+      </Shell>
+    );
+  }
+
+  // আগে অংশ নিয়ে থাকলে সময়সীমা শেষ হলেও ফলাফল দেখানো হবে
+  const existingAttempt = await db.attempt.findUnique({
+    where: { testId_userId: { testId: test.id, userId: user.id } },
+  });
+
+  if (existingAttempt) {
+    const betterCount = await db.attempt.count({
+      where: {
+        testId: test.id,
+        OR: [
+          { score: { gt: existingAttempt.score } },
+          {
+            score: existingAttempt.score,
+            timeSpent: { lt: existingAttempt.timeSpent },
+          },
+        ],
+      },
+    });
+    const myRank = betterCount + 1;
+
+    return (
+      <Shell>
+        <div className="text-5xl">✅</div>
+        <h1 className="mt-4 text-xl font-bold text-slate-800">{test.title}</h1>
+        <p className="mt-2 text-sm text-slate-600">আপনি ইতিমধ্যে এই পরীক্ষাটি দিয়েছেন।</p>
+
+        <div className="mt-4 grid w-full max-w-sm grid-cols-3 gap-2">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+            <div className="text-xs text-slate-500">প্রাপ্ত নম্বর</div>
+            <div className="mt-1 text-lg font-bold text-emerald-600">
+              {bn(existingAttempt.score)} / {bn(existingAttempt.total)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+            <div className="text-xs text-slate-500">সময় লেগেছে</div>
+            <div className="mt-1 text-sm font-bold text-blue-600">
+              {formatDuration(existingAttempt.timeSpent)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
+            <div className="text-xs text-slate-500">আপনার র‍্যাংক</div>
+            <div className="mt-1 text-lg font-bold text-amber-600">#{bn(myRank)}</div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid w-full max-w-sm grid-cols-2 gap-3">
+          <Link
+            href={`/model-test/${test.id}/leaderboard`}
+            className="rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 text-sm font-bold text-white shadow hover:opacity-90"
+          >
+            🏆 Leaderboard
+          </Link>
+          <Link
+            href="/profile"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+          >
+            👤 Profile
+          </Link>
+        </div>
+      </Shell>
+    );
+  }
+
   if (now < test.startAt) {
     return (
       <Shell>
@@ -77,15 +162,12 @@ export default async function ModelTestPage({
         <h1 className="mt-4 text-xl font-bold text-slate-800">{test.title}</h1>
         <p className="mt-2 text-sm text-slate-600">এই পরীক্ষার সময়সীমা শেষ হয়ে গেছে।</p>
         <p className="mt-1 text-xs text-slate-400">শেষ হয়েছে: {formatDateTime(test.endAt)}</p>
-      </Shell>
-    );
-  }
-
-  const user = await db.user.findUnique({ where: { email: session.user.email } });
-  if (!user) {
-    return (
-      <Shell>
-        <h1 className="text-lg font-bold text-slate-800">ইউজার পাওয়া যায়নি, আবার লগইন করুন।</h1>
+        <Link
+          href={`/model-test/${test.id}/leaderboard`}
+          className="mt-5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-5 py-3 text-sm font-bold text-white shadow hover:opacity-90"
+        >
+          🏆 Leaderboard দেখুন
+        </Link>
       </Shell>
     );
   }
@@ -97,34 +179,6 @@ export default async function ModelTestPage({
         <h1 className="mt-4 text-xl font-bold text-slate-800">{test.title}</h1>
         <p className="mt-2 text-sm text-slate-600">এটি একটি প্রিমিয়াম মডেল টেস্ট।</p>
         <p className="mt-1 text-xs text-slate-400">প্যাকেজ সিস্টেম শীঘ্রই চালু হচ্ছে। তখন থেকে এই টেস্টটি দেওয়া যাবে।</p>
-      </Shell>
-    );
-  }
-
-  const existingAttempt = await db.attempt.findUnique({
-    where: { testId_userId: { testId: test.id, userId: user.id } },
-  });
-
-  if (existingAttempt) {
-    return (
-      <Shell>
-        <div className="text-5xl">✅</div>
-        <h1 className="mt-4 text-xl font-bold text-slate-800">{test.title}</h1>
-        <p className="mt-2 text-sm text-slate-600">আপনি ইতিমধ্যে এই পরীক্ষাটি দিয়েছেন।</p>
-        <div className="mt-4 grid w-full max-w-xs grid-cols-2 gap-3">
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
-            <div className="text-xs text-slate-500">প্রাপ্ত নম্বর</div>
-            <div className="text-xl font-bold text-emerald-600">
-              {existingAttempt.score} / {existingAttempt.total}
-            </div>
-          </div>
-          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
-            <div className="text-xs text-slate-500">সময় লেগেছে</div>
-            <div className="text-xl font-bold text-blue-600">
-              {Math.floor(existingAttempt.timeSpent / 60)} মি.
-            </div>
-          </div>
-        </div>
       </Shell>
     );
   }
