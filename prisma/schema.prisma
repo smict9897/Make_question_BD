@@ -272,3 +272,31 @@ model AiTask {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
+model BookStore {
+  id                String   @id @default(uuid()) @db.Text
+  title             String   @db.Text
+  author            String   @db.Text
+  category          String   @db.Text
+  coverUrl          String   @db.Text
+  pdfPrice          Float
+  pdfRegularPrice   Float?   @default(0)
+  printPrice        Float?   @default(0)
+  printRegularPrice Float?   @default(0)
+  pdfDriveUrl       String   @db.Text
+  samplePages       String   @default("[]") @db.Text
+  description       String?  @db.Text
+  specification     String?  @db.Text
+  authorBio         String?  @db.Text
+  rating            Float?   @default(4.9)
+  reviewCount       Int?     @default(25)
+  pageCount         Int?     @default(120)
+  publisher         String?  @default("সাইফুল স্যার পাবলিকেশন্স") @db.Text
+  edition           String?  @default("২০২৬-২০২৭ নতুন সংস্করণ") @db.Text
+  isFree            Boolean? @default(false)
+  isAffiliate       Boolean? @default(false)
+  affiliateUrl      String?  @default("") @db.Text
+  published         Boolean? @default(true)
+  createdAt         DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("BookStore")
+}
