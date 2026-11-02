@@ -1,10 +1,28 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-// 🎯 এখানে CheckSquare এবং Square যোগ করা হলো
 import { Sparkles, Loader2, CheckCircle2, AlertCircle, Clock, CheckCheck, XCircle, ListTodo, Check, Save, Edit3, CheckSquare, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { NCTB_CLASSES } from "@/lib/nctb-data";
+
+type GenType = "BLOG" | "MCQ" | "CQ" | "SQ";
+type QKind = "MCQ" | "CQ" | "SQ";
+
+// সৃজনশীল প্রশ্নের ক/খ/গ/ঘ
+const CQ_KEYS: [string, string][] = [
+  ["ক", "জ্ঞানমূলক · ১"],
+  ["খ", "অনুধাবনমূলক · ২"],
+  ["গ", "প্রয়োগমূলক · ৩"],
+  ["ঘ", "উচ্চতর দক্ষতা · ৪"],
+];
+
+// প্রশ্ন কোন ধরনের তা বের করা
+function kindOf(q: any): QKind {
+  if (q?.correct && String(q.correct).trim()) return "MCQ";
+  const o = q?.options && typeof q.options === "object" ? q.options : {};
+  if (o.stimulus || o["ক"] || o["খ"]) return "CQ";
+  return "SQ";
+}
 
 export default function AdminAIGenerator() {
   const router = useRouter();
@@ -12,10 +30,10 @@ export default function AdminAIGenerator() {
   // জেনারেটরের স্টেট
   const [category, setCategory] = useState(NCTB_CLASSES[0]?.class || "Class 9-10");
   const [subject, setSubject] = useState("");
-  const [topicCategory, setTopicCategory] = useState(""); // 🎯 নতুন: ইউনিট/গ্রুপ নির্বাচনের জন্য
+  const [topicCategory, setTopicCategory] = useState("");
   const [topic, setTopic] = useState("");
   const [isAllTopics, setIsAllTopics] = useState(false);
-  const [type, setType] = useState<"BLOG" | "MCQ">("BLOG");
+  const [type, setType] = useState<GenType>("BLOG");
   const [prompt, setPrompt] = useState("");
   const [mcqCount, setMcqCount] = useState(10);
 
@@ -32,6 +50,7 @@ export default function AdminAIGenerator() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState<any>(null);
   const [approvalMsg, setApprovalMsg] = useState("");
+  const [approvalErr, setApprovalErr] = useState("");
 
   const availableSubjects = useMemo(() => {
     const foundClass = NCTB_CLASSES.find((c) => c.class === category);
@@ -56,7 +75,7 @@ export default function AdminAIGenerator() {
     return grp?.topics ?? [];
   }, [groupedTopics, topicCategory]);
 
-  // সবগুলো টপিক এক জায়গায় (চেক/ডিজেবল/"সব অধ্যায়" এর জন্য ব্যবহার হবে)
+  // সবগুলো টপিক এক জায়গায়
   const availableTopics = useMemo(() => {
     if (flatTopics.length > 0) return flatTopics;
     return groupedTopics.flatMap((g) => g.topics);
@@ -70,9 +89,10 @@ export default function AdminAIGenerator() {
     } catch (e) {} finally { setIsInitialLoad(false); }
   };
 
+  // 🎯 শুধু যেগুলো এখনো অ্যাপ্রুভ হয়নি
   const fetchPendingQuestions = async () => {
     try {
-      const res = await fetch("/api/admin/ai-approvals");
+      const res = await fetch("/api/admin/ai-approvals?pending=1");
       const data = await res.json();
       if (data.success) setPendingQuestions(data.questions);
     } catch (e) {}
@@ -84,6 +104,11 @@ export default function AdminAIGenerator() {
     const interval = setInterval(() => { fetchStats(); fetchPendingQuestions(); }, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  const pickType = (t: GenType) => {
+    setType(t);
+    setMcqCount(t === "CQ" ? 3 : 10);
+  };
 
   const handleGenerate = async () => {
     if (!subject) return setStatus({ type: "error", msg: "অনুগ্রহ করে বিষয় নির্বাচন করুন।" });
@@ -119,15 +144,18 @@ export default function AdminAIGenerator() {
               hasMoreTasks = false; 
               setStatus({ type: "success", msg: "🎉 আপনার সব কাজ সফলভাবে সম্পন্ন হয়েছে এবং ড্রাফটে সেভ হয়েছে!" });
               fetchPendingQuestions();
-            } else if (workerText.includes("Error")) {
+            } else if (workerText.includes("Error") || !workerRes.ok) {
               hasMoreTasks = false; 
-              setStatus({ type: "error", msg: `সমস্যা হয়েছে: ${workerText}` });
+              setStatus({ type: "error", msg: `সমস্যা হয়েছে: ${workerText.slice(0, 300)}` });
             } else {
               fetchStats();
               fetchPendingQuestions();
               setStatus({ type: "info", msg: "একটি অংশ তৈরি হলো, পরের অংশ তৈরি হচ্ছে..." });
             }
-          } catch (err) { hasMoreTasks = false; }
+          } catch (err) {
+            hasMoreTasks = false;
+            setStatus({ type: "error", msg: "ইন্টারনেট বা সার্ভারে সমস্যা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।" });
+          }
         }
         router.refresh();
       } else {
@@ -138,64 +166,146 @@ export default function AdminAIGenerator() {
     } finally { setLoading(false); }
   };
 
-  const handleApproveOne = async (id: string) => {
-    setIsApproving(true);
+  // 🎯 অ্যাপ্রুভ/এডিটের সাধারণ কল (ত্রুটি হলে পেজে দেখাবে)
+  const postApproval = async (body: any) => {
+    setApprovalMsg("");
+    setApprovalErr("");
     try {
       const res = await fetch("/api/admin/ai-approvals", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve", ids: [id] }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
-      const data = await res.json();
-      if (data.success) { setApprovalMsg(data.message); fetchPendingQuestions(); fetchStats(); }
-    } catch (e) {} finally { setIsApproving(false); }
+      let data: any = null;
+      try { data = await res.json(); } catch {}
+      if (!res.ok || !data?.success) {
+        setApprovalErr(data?.error || "কাজটি হয়নি। আবার চেষ্টা করুন।");
+        return null;
+      }
+      return data;
+    } catch (e) {
+      setApprovalErr("সার্ভারে সমস্যা হয়েছে। ইন্টারনেট চেক করে আবার চেষ্টা করুন।");
+      return null;
+    }
+  };
+
+  const handleApproveOne = async (id: string) => {
+    setIsApproving(true);
+    const data = await postApproval({ action: "approve", ids: [id] });
+    if (data) {
+      setApprovalMsg(data.message);
+      setSelectedIds((prev) => prev.filter((x) => x !== id));
+      fetchPendingQuestions();
+      fetchStats();
+    }
+    setIsApproving(false);
   };
 
   const handleApproveSelected = async () => {
     if (selectedIds.length === 0) return;
     setIsApproving(true);
-    try {
-      const res = await fetch("/api/admin/ai-approvals", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve", ids: selectedIds }),
-      });
-      const data = await res.json();
-      if (data.success) { setApprovalMsg(data.message); setSelectedIds([]); fetchPendingQuestions(); fetchStats(); }
-    } catch (e) {} finally { setIsApproving(false); }
+    const data = await postApproval({ action: "approve", ids: selectedIds });
+    if (data) {
+      setApprovalMsg(data.message);
+      setSelectedIds([]);
+      fetchPendingQuestions();
+      fetchStats();
+    }
+    setIsApproving(false);
   };
 
   const handleApproveAll = async () => {
     if (!window.confirm("আপনি কি সব প্রশ্ন অ্যাপ্রুভ করতে চান?")) return;
     setIsApproving(true);
-    try {
-      const res = await fetch("/api/admin/ai-approvals", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve-all" }),
-      });
-      const data = await res.json();
-      if (data.success) { setApprovalMsg(data.message); setSelectedIds([]); fetchPendingQuestions(); fetchStats(); }
-    } catch (e) {} finally { setIsApproving(false); }
+    const data = await postApproval({ action: "approve-all" });
+    if (data) {
+      setApprovalMsg(data.message);
+      setSelectedIds([]);
+      fetchPendingQuestions();
+      fetchStats();
+    }
+    setIsApproving(false);
   };
+
+  // এডিট শুরু
+  const startEdit = (q: any) => {
+    const k = kindOf(q);
+    const opts = q.options && typeof q.options === "object" ? q.options : {};
+    setEditingId(q.id);
+    if (k === "MCQ") {
+      setEditData({ id: q.id, kind: k, text: q.text || "", options: { ...opts }, correct: q.correct || "A", explanation: q.explanation || "", topic: q.topic || "" });
+    } else if (k === "CQ") {
+      setEditData({
+        id: q.id, kind: k, text: q.text || "",
+        options: { ...opts, stimulus: opts.stimulus || q.text || "", ans: { ...(opts.ans || {}) } },
+        correct: "", explanation: "", topic: q.topic || "",
+      });
+    } else {
+      setEditData({ id: q.id, kind: k, text: q.text || "", options: { ...opts, answer: opts.answer || q.explanation || "" }, correct: "", explanation: q.explanation || "", topic: q.topic || "" });
+    }
+  };
+
+  const cancelEdit = () => { setEditingId(null); setEditData(null); };
 
   const handleSaveEdit = async () => {
     if (!editData) return;
     setIsApproving(true);
-    try {
-      const res = await fetch("/api/admin/ai-approvals", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update", ...editData }),
-      });
-      const data = await res.json();
-      if (data.success) { setApprovalMsg(data.message); setEditingId(null); setEditData(null); fetchPendingQuestions(); }
-    } catch (e) {} finally { setIsApproving(false); }
+
+    let payload: any;
+    if (editData.kind === "MCQ") {
+      payload = {
+        action: "update", id: editData.id, text: editData.text,
+        options: editData.options, correct: editData.correct,
+        explanation: editData.explanation, topic: editData.topic,
+      };
+    } else if (editData.kind === "CQ") {
+      payload = {
+        action: "update", id: editData.id,
+        text: editData.options.stimulus || editData.text,
+        options: editData.options, topic: editData.topic,
+      };
+    } else {
+      payload = {
+        action: "update", id: editData.id, text: editData.text,
+        options: { answer: editData.options.answer || "" },
+        explanation: editData.options.answer || "", topic: editData.topic,
+      };
+    }
+
+    const data = await postApproval(payload);
+    if (data) {
+      setApprovalMsg(data.message);
+      cancelEdit();
+      fetchPendingQuestions();
+    }
+    setIsApproving(false);
   };
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
 
+  const setOpt = (key: string, val: string) =>
+    setEditData((d: any) => ({ ...d, options: { ...d.options, [key]: val } }));
+  const setAns = (key: string, val: string) =>
+    setEditData((d: any) => ({ ...d, options: { ...d.options, ans: { ...(d.options.ans || {}), [key]: val } } }));
+
   const cleanOpt = (t: string) => t?.replace(/[✓✔☑]/g, "").replace(/\[?(উত্তর|Ans|সঠিক|Correct).*?\]?/gi, "").trim() || "";
   const noTask = !isInitialLoad && stats.pending === 0 && stats.processing === 0 && stats.completed === 0 && stats.failed === 0;
   const allTasksCompleted = !isInitialLoad && stats.pending === 0 && stats.processing === 0 && (stats.completed > 0 || stats.failed > 0);
+
+  const typeBtn = (t: GenType, label: string) => (
+    <button
+      key={t}
+      onClick={() => pickType(t)}
+      className={`flex-1 py-2 rounded-lg text-xs sm:text-sm font-bold border transition ${type === t ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700 border-slate-300"}`}
+    >
+      {label}
+    </button>
+  );
+
+  const countStep = type === "CQ" ? 3 : 10;
+  const countMin = type === "CQ" ? 3 : 10;
 
   return (
     <div className="space-y-6 mb-6">
@@ -208,9 +318,11 @@ export default function AdminAIGenerator() {
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <label className="text-xs font-bold text-slate-700">কী তৈরি করতে চান?</label>
-            <div className="flex gap-2 mt-1">
-              <button onClick={() => setType("BLOG")} className={`flex-1 py-2 rounded-lg text-sm font-bold border transition ${type === "BLOG" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700 border-slate-300"}`}>📝 ব্লগ পোস্ট</button>
-              <button onClick={() => setType("MCQ")} className={`flex-1 py-2 rounded-lg text-sm font-bold border transition ${type === "MCQ" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700 border-slate-300"}`}>🎯 MCQ প্রশ্ন</button>
+            <div className="grid grid-cols-2 sm:flex gap-2 mt-1">
+              {typeBtn("BLOG", "📝 ব্লগ পোস্ট")}
+              {typeBtn("MCQ", "🎯 MCQ")}
+              {typeBtn("CQ", "🧠 সৃজনশীল (CQ)")}
+              {typeBtn("SQ", "✏️ সংক্ষিপ্ত (SQ)")}
             </div>
           </div>
 
@@ -238,10 +350,12 @@ export default function AdminAIGenerator() {
             </select>
           </div>
 
-          {type === "MCQ" && (
+          {type !== "BLOG" && (
             <div>
-              <label className="text-xs font-bold text-slate-700">প্রশ্নের সংখ্যা (যেমন: ৫০)</label>
-              <input type="number" value={mcqCount} onChange={(e) => setMcqCount(Number(e.target.value))} className="w-full rounded-lg border border-blue-200 p-2 text-sm mt-1 bg-white" min={10} step={10} />
+              <label className="text-xs font-bold text-slate-700">
+                প্রশ্নের সংখ্যা {type === "CQ" ? "(প্রতি অংশে ৩টি করে)" : "(১০টি করে বাড়ে)"}
+              </label>
+              <input type="number" value={mcqCount} onChange={(e) => setMcqCount(Number(e.target.value))} className="w-full rounded-lg border border-blue-200 p-2 text-sm mt-1 bg-white" min={countMin} step={countStep} />
             </div>
           )}
 
@@ -254,7 +368,6 @@ export default function AdminAIGenerator() {
             {!isAllTopics && (
               <>
                 {hasGroups ? (
-                  // 🎯 গ্রুপ করা বিষয়ের জন্য: ২ ধাপে সিলেক্ট (প্রথমে ইউনিট/ক্যাটাগরি, তারপর নির্দিষ্ট টপিক)
                   <div className="space-y-2">
                     <select
                       value={topicCategory}
@@ -281,7 +394,6 @@ export default function AdminAIGenerator() {
                     </select>
                   </div>
                 ) : (
-                  // ফ্ল্যাট চ্যাপ্টারের বিষয়ের জন্য: একটা ড্রপডাউন
                   <select value={topic} onChange={(e) => setTopic(e.target.value)} className="w-full rounded-lg border border-blue-200 p-2 text-sm bg-white" disabled={!subject || availableTopics.length === 0}>
                     <option value="">-- নির্দিষ্ট অধ্যায় বাছুন --</option>
                     {flatTopics.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
@@ -293,7 +405,7 @@ export default function AdminAIGenerator() {
         </div>
 
         <div className="mt-3 flex flex-col gap-3">
-          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="বাড়তি কোনো নির্দেশনা..." rows={3} className="w-full rounded-xl border border-blue-200 bg-white p-3 text-sm outline-none focus:border-blue-500" disabled={loading} />
+          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="বাড়তি কোনো নির্দেশনা (যেমন: সব প্রশ্ন গাণিতিক সমস্যাভিত্তিক হবে)..." rows={3} className="w-full rounded-xl border border-blue-200 bg-white p-3 text-sm outline-none focus:border-blue-500" disabled={loading} />
           
           <button onClick={handleGenerate} disabled={loading || !subject} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-md hover:bg-blue-700 disabled:opacity-60">
             {loading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
@@ -372,10 +484,13 @@ export default function AdminAIGenerator() {
           </div>
 
           {approvalMsg && <div className="mb-3 text-xs font-bold text-green-600 bg-green-50 p-2 rounded">{approvalMsg}</div>}
+          {approvalErr && <div className="mb-3 text-xs font-bold text-red-600 bg-red-50 p-2 rounded">{approvalErr}</div>}
 
           <div className="grid gap-3 max-h-[500px] overflow-y-auto pr-2">
             {pendingQuestions.map((q, i) => {
-              const isEditing = editingId === q.id;
+              const isEditing = editingId === q.id && !!editData;
+              const k = kindOf(q);
+              const o = q.options && typeof q.options === "object" ? q.options : {};
               return (
                 <div key={q.id} className={`rounded-xl border p-4 transition-all ${isEditing ? "border-blue-500 bg-white ring-1 ring-blue-500" : "border-slate-200 bg-slate-50/30"}`}>
                   <div className="flex items-start gap-3">
@@ -383,52 +498,128 @@ export default function AdminAIGenerator() {
                       {selectedIds.includes(q.id) ? <CheckSquare size={18} /> : <Square size={18} />}
                     </button>
                     
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       {isEditing ? (
                         <div className="space-y-3">
-                          <textarea value={editData.text} onChange={(e) => setEditData({ ...editData, text: e.target.value })} className="w-full rounded-lg border p-2 text-sm font-bold focus:ring-1 focus:ring-blue-500 outline-none" rows={2} />
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                            {["A", "B", "C", "D"].map(key => (
-                              <div key={key} className="flex items-center gap-2">
-                                <span className="font-bold w-4">{key}:</span>
-                                <input value={editData.options[key] || ""} onChange={(e) => setEditData({ ...editData, options: { ...editData.options, [key]: e.target.value } })} className="w-full rounded border p-1.5 focus:ring-1 focus:ring-blue-500 outline-none" />
+                          {/* ===== MCQ এডিট ===== */}
+                          {editData.kind === "MCQ" && (
+                            <>
+                              <textarea value={editData.text} onChange={(e) => setEditData({ ...editData, text: e.target.value })} className="w-full rounded-lg border p-2 text-sm font-bold focus:ring-1 focus:ring-blue-500 outline-none" rows={3} />
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                {["A", "B", "C", "D"].map(key => (
+                                  <div key={key} className="flex items-center gap-2">
+                                    <span className="font-bold w-4">{key}:</span>
+                                    <input value={editData.options[key] || ""} onChange={(e) => setOpt(key, e.target.value)} className="w-full rounded border p-1.5 focus:ring-1 focus:ring-blue-500 outline-none" />
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                              <div className="flex items-center gap-4 text-xs mt-2 bg-slate-100 p-2 rounded">
+                                <div className="flex items-center gap-1">
+                                  <span className="font-bold">সঠিক:</span>
+                                  <select value={editData.correct} onChange={(e) => setEditData({ ...editData, correct: e.target.value })} className="rounded border p-1 outline-none">
+                                    <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
+                                  </select>
+                                </div>
+                                <div className="flex-1">
+                                  <input placeholder="ব্যাখ্যা..." value={editData.explanation || ""} onChange={(e) => setEditData({ ...editData, explanation: e.target.value })} className="w-full rounded border p-1.5 outline-none" />
+                                </div>
+                              </div>
+                            </>
+                          )}
+
+                          {/* ===== CQ এডিট ===== */}
+                          {editData.kind === "CQ" && (
+                            <>
+                              <div>
+                                <p className="text-xs font-bold text-slate-600 mb-1">উদ্দীপক</p>
+                                <textarea value={editData.options.stimulus || ""} onChange={(e) => setOpt("stimulus", e.target.value)} className="w-full rounded-lg border p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none" rows={4} />
+                              </div>
+                              {CQ_KEYS.map(([key, label]) => (
+                                <div key={key} className="rounded-lg bg-slate-100 p-2 space-y-1">
+                                  <p className="text-xs font-bold text-slate-600">({key}) {label}</p>
+                                  <textarea value={editData.options[key] || ""} onChange={(e) => setOpt(key, e.target.value)} className="w-full rounded border p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500" rows={2} placeholder="প্রশ্ন" />
+                                  <textarea value={editData.options.ans?.[key] || ""} onChange={(e) => setAns(key, e.target.value)} className="w-full rounded border p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500" rows={2} placeholder="নমুনা উত্তর" />
+                                </div>
+                              ))}
+                            </>
+                          )}
+
+                          {/* ===== SQ এডিট ===== */}
+                          {editData.kind === "SQ" && (
+                            <>
+                              <div>
+                                <p className="text-xs font-bold text-slate-600 mb-1">প্রশ্ন</p>
+                                <textarea value={editData.text} onChange={(e) => setEditData({ ...editData, text: e.target.value })} className="w-full rounded-lg border p-2 text-sm font-bold focus:ring-1 focus:ring-blue-500 outline-none" rows={2} />
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-slate-600 mb-1">নমুনা উত্তর</p>
+                                <textarea value={editData.options.answer || ""} onChange={(e) => setOpt("answer", e.target.value)} className="w-full rounded-lg border p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none" rows={3} />
+                              </div>
+                            </>
+                          )}
+
+                          {/* অধ্যায়ের নাম (সব ধরনে) */}
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="font-bold shrink-0">অধ্যায়:</span>
+                            <input value={editData.topic || ""} onChange={(e) => setEditData({ ...editData, topic: e.target.value })} className="w-full rounded border p-1.5 outline-none focus:ring-1 focus:ring-blue-500" />
                           </div>
-                          <div className="flex items-center gap-4 text-xs mt-2 bg-slate-100 p-2 rounded">
-                            <div className="flex items-center gap-1">
-                              <span className="font-bold">সঠিক:</span>
-                              <select value={editData.correct} onChange={(e) => setEditData({ ...editData, correct: e.target.value })} className="rounded border p-1 outline-none">
-                                <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
-                              </select>
-                            </div>
-                            <div className="flex-1">
-                              <input placeholder="ব্যাখ্যা..." value={editData.explanation || ""} onChange={(e) => setEditData({ ...editData, explanation: e.target.value })} className="w-full rounded border p-1.5 outline-none" />
-                            </div>
-                          </div>
+
                           <div className="flex gap-2 mt-2">
                             <button onClick={handleSaveEdit} disabled={isApproving} className="flex items-center gap-1 rounded bg-blue-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"><Save size={12} /> সেভ</button>
-                            <button onClick={() => setEditingId(null)} className="rounded bg-slate-200 px-4 py-1.5 text-xs font-bold text-slate-700">বাতিল</button>
+                            <button onClick={cancelEdit} className="rounded bg-slate-200 px-4 py-1.5 text-xs font-bold text-slate-700">বাতিল</button>
                           </div>
                         </div>
                       ) : (
                         <>
-                          <p className="text-sm font-bold text-slate-800 whitespace-pre-line">{i + 1}. {q.text}</p>
-                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700">
-                            <div className={q.correct === "A" ? "font-bold text-emerald-600" : ""}>(ক) {cleanOpt(q.options?.A)}</div>
-                            <div className={q.correct === "B" ? "font-bold text-emerald-600" : ""}>(খ) {cleanOpt(q.options?.B)}</div>
-                            <div className={q.correct === "C" ? "font-bold text-emerald-600" : ""}>(গ) {cleanOpt(q.options?.C)}</div>
-                            <div className={q.correct === "D" ? "font-bold text-emerald-600" : ""}>(ঘ) {cleanOpt(q.options?.D)}</div>
-                          </div>
+                          {/* ===== MCQ কার্ড ===== */}
+                          {k === "MCQ" && (
+                            <>
+                              <p className="text-sm font-bold text-slate-800 whitespace-pre-line">{i + 1}. {q.text}</p>
+                              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700">
+                                <div className={q.correct === "A" ? "font-bold text-emerald-600" : ""}>(ক) {cleanOpt(o.A)}</div>
+                                <div className={q.correct === "B" ? "font-bold text-emerald-600" : ""}>(খ) {cleanOpt(o.B)}</div>
+                                <div className={q.correct === "C" ? "font-bold text-emerald-600" : ""}>(গ) {cleanOpt(o.C)}</div>
+                                <div className={q.correct === "D" ? "font-bold text-emerald-600" : ""}>(ঘ) {cleanOpt(o.D)}</div>
+                              </div>
+                            </>
+                          )}
+
+                          {/* ===== CQ কার্ড ===== */}
+                          {k === "CQ" && (
+                            <>
+                              <p className="text-sm font-bold text-slate-800 whitespace-pre-line">{i + 1}. {o.stimulus || q.text}</p>
+                              <div className="mt-2 space-y-2 text-xs text-slate-700">
+                                {CQ_KEYS.map(([key, label]) => (
+                                  <div key={key} className="rounded-lg bg-white border border-slate-200 p-2">
+                                    <p className="font-bold">({key}) {o[key]} <span className="text-[10px] font-normal text-slate-400">[{label}]</span></p>
+                                    {o.ans?.[key] && <p className="mt-1 text-emerald-700 whitespace-pre-line">উত্তর: {o.ans[key]}</p>}
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+
+                          {/* ===== SQ কার্ড ===== */}
+                          {k === "SQ" && (
+                            <>
+                              <p className="text-sm font-bold text-slate-800 whitespace-pre-line">{i + 1}. {q.text}</p>
+                              {(o.answer || q.explanation) && (
+                                <p className="mt-2 text-xs text-emerald-700 whitespace-pre-line">উত্তর: {o.answer || q.explanation}</p>
+                              )}
+                            </>
+                          )}
+
                           <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-bold">
-                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">সঠিক: {q.correct}</span>
+                            <span className="bg-slate-800 text-white px-2 py-0.5 rounded">{k === "MCQ" ? "MCQ" : k === "CQ" ? "সৃজনশীল" : "সংক্ষিপ্ত"}</span>
+                            {k === "MCQ" && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">সঠিক: {q.correct}</span>}
                             <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded">{q.category}</span>
                             <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{q.subject}</span>
+                            {q.topic && <span className="bg-teal-100 text-teal-700 px-2 py-0.5 rounded">{q.topic}</span>}
                             
-                            <button onClick={() => { setEditingId(q.id); setEditData({ ...q, options: { ...q.options } }); }} className="ml-auto flex items-center gap-1 rounded bg-slate-100 px-2.5 py-1 text-slate-700 hover:bg-slate-200 border border-slate-200">
+                            <button onClick={() => startEdit(q)} className="ml-auto flex items-center gap-1 rounded bg-slate-100 px-2.5 py-1 text-slate-700 hover:bg-slate-200 border border-slate-200">
                               <Edit3 size={12} /> এডিট
                             </button>
-                            <button onClick={() => handleApproveOne(q.id)} disabled={isApproving} className="flex items-center gap-1 rounded bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-700 shadow-sm">
+                            <button onClick={() => handleApproveOne(q.id)} disabled={isApproving} className="flex items-center gap-1 rounded bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-700 shadow-sm disabled:opacity-60">
                               <Check size={12} /> Approve
                             </button>
                           </div>
@@ -454,3 +645,5 @@ export default function AdminAIGenerator() {
     </div>
   );
 }
+
+// ===== ফাইল শেষ =====
