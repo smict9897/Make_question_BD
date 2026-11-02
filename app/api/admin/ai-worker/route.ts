@@ -77,6 +77,10 @@ export async function GET() {
     const kind: "BLOG" | "CQ" | "SQ" | "MCQ" =
       task.type === "BLOG" ? "BLOG" : task.type === "CQ" ? "CQ" : task.type === "SQ" ? "SQ" : "MCQ";
 
+    // 🎯 গণিত/উচ্চতর গণিতের সৃজনশীলে ৩ অংশ (ক, খ, গ); বাকি বিষয়ে ৪ অংশ
+    const isMath = /গণিত|math/i.test(task.subject || "");
+    const cqThree = kind === "CQ" && isMath;
+
     // অধ্যায় বাছা না থাকলে AI নিজে প্রতিটি প্রশ্নের অধ্যায় বলবে
     const isAll = !task.topic || task.topic.trim() === "সকল অধ্যায়";
     const chapters = isAll ? chapterListFor(task.category, task.subject) : [];
@@ -153,7 +157,35 @@ export async function GET() {
           ? `The following questions ALREADY EXIST. Do NOT repeat them or use the same stimulus. Create completely new ones:\n${existingQs.map(q => q.text.slice(0, 120)).join("\n")}`
           : "";
 
-        systemPrompt = `You are an expert Bangladeshi teacher who writes NCTB-style creative questions (সৃজনশীল প্রশ্ন). Generate exactly ${CQ_PER_PART} creative questions for: "${contextText}".
+        if (cqThree) {
+          // 🎯 গণিত: ৩ অংশ (ক-২, খ-৪, গ-৪)
+          systemPrompt = `You are an expert Bangladeshi mathematics teacher who writes NCTB-style creative questions (সৃজনশীল প্রশ্ন) for Mathematics. Generate exactly ${CQ_PER_PART} creative math questions for: "${contextText}".
+      This is part ${task.part} of ${task.totalParts}.
+
+      ${avoidText}
+
+      ${extraText}
+
+      ${chapterRule}
+
+      In Mathematics, EACH creative question has ONLY THREE sub-questions (NO fourth part). Each question MUST have:
+      - "stimulus": a short, original mathematical stimulus (উদ্দীপক) in Bengali: an expression, equation, a geometric figure described in words, a real-life numeric situation or a data set related to the topic.
+      - "k" (ক): 2 marks. A definition, formula, or a very simple calculation.
+      - "kh" (খ): 4 marks. A problem to solve using the stimulus.
+      - "g" (গ): 4 marks. A more complex problem or a proof using the stimulus and the previous parts.
+      - "answers": a model answer for each of k, kh, g. k: 1-2 lines. kh and g: complete step-by-step solutions, each step on a new line.
+
+      CRITICAL RULES:
+      1. Write everything in Bengali (use Bengali digits where natural).
+      2. Write math using plain Unicode symbols (for example x², √, ½, π, ∠, △). Do NOT use LaTeX or dollar signs.
+      3. The numbers and calculations MUST be correct and solvable.
+      4. Cover DIFFERENT parts of the syllabus in each question.
+      5. DO NOT include any "gh" or "ঘ" field.
+      6. DO NOT break the JSON format.
+
+      Return ONLY a valid JSON object: { "questions": [ { "stimulus": "উদ্দীপক", "k": "ক-এর প্রশ্ন", "kh": "খ-এর প্রশ্ন", "g": "গ-এর প্রশ্ন", "answers": { "k": "...", "kh": "...", "g": "..." }, "difficulty": "EASY" | "MEDIUM" | "HARD"${chapterJson} } ] }`;
+        } else {
+          systemPrompt = `You are an expert Bangladeshi teacher who writes NCTB-style creative questions (সৃজনশীল প্রশ্ন). Generate exactly ${CQ_PER_PART} creative questions for: "${contextText}".
       This is part ${task.part} of ${task.totalParts}.
 
       ${avoidText}
@@ -176,6 +208,7 @@ export async function GET() {
       3. DO NOT break the JSON format.
 
       Return ONLY a valid JSON object: { "questions": [ { "stimulus": "উদ্দীপক", "k": "ক-এর প্রশ্ন", "kh": "খ-এর প্রশ্ন", "g": "গ-এর প্রশ্ন", "gh": "ঘ-এর প্রশ্ন", "answers": { "k": "...", "kh": "...", "g": "...", "gh": "..." }, "difficulty": "EASY" | "MEDIUM" | "HARD"${chapterJson} } ] }`;
+        }
       } else {
         const avoidText = existingQs.length > 0
           ? `The following questions ALREADY EXIST. Do NOT repeat them. Create completely new and different questions:\n${existingQs.map(q => q.text.slice(0, 120)).join("\n")}`
@@ -319,7 +352,9 @@ export async function GET() {
           };
         })
         .filter((v: any) => {
-          if (!v.stimulus || !v.k || !v.kh || !v.g || !v.gh) return false;
+          // গণিতে ঘ লাগে না; বাকি বিষয়ে চারটিই লাগবে
+          if (!v.stimulus || !v.k || !v.kh || !v.g) return false;
+          if (!cqThree && !v.gh) return false;
           const key = v.stimulus.toLowerCase();
           if (existingTexts.has(key)) return false;
           existingTexts.add(key);
@@ -331,14 +366,22 @@ export async function GET() {
       await (db.question.createMany as any)({
         data: valid.map((v: any) => ({
           text: v.stimulus,
-          options: {
-            stimulus: v.stimulus,
-            "ক": v.k,
-            "খ": v.kh,
-            "গ": v.g,
-            "ঘ": v.gh,
-            ans: { "ক": v.ak, "খ": v.akh, "গ": v.ag, "ঘ": v.agh },
-          },
+          options: cqThree
+            ? {
+                stimulus: v.stimulus,
+                "ক": v.k,
+                "খ": v.kh,
+                "গ": v.g,
+                ans: { "ক": v.ak, "খ": v.akh, "গ": v.ag },
+              }
+            : {
+                stimulus: v.stimulus,
+                "ক": v.k,
+                "খ": v.kh,
+                "গ": v.g,
+                "ঘ": v.gh,
+                ans: { "ক": v.ak, "খ": v.akh, "গ": v.ag, "ঘ": v.agh },
+              },
           correct: "",
           explanation: "",
           category: task.category || "সাধারণ",
