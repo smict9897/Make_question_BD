@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { hasPremium } from "@/lib/premium";
 import ModelTestLoginButton from "@/components/model-test-login-button";
 import ModelTestClient from "@/components/model-test-client";
 import type { ExamQuestion } from "@/components/LiveExamPlayer";
@@ -178,15 +179,36 @@ export default async function ModelTestPage({
     );
   }
 
+  // 👑 প্রিমিয়াম পরীক্ষা: মেয়াদ চলা প্যাকেজ থাকলে ঢুকতে দেওয়া হবে
   if (test.isPaid) {
-    return (
-      <Shell>
-        <div className="text-5xl">🔒</div>
-        <h1 className="mt-4 text-xl font-bold text-slate-800">{test.title}</h1>
-        <p className="mt-2 text-sm text-slate-600">এটি একটি প্রিমিয়াম মডেল টেস্ট।</p>
-        <p className="mt-1 text-xs text-slate-400">প্যাকেজ সিস্টেম শীঘ্রই চালু হচ্ছে। তখন থেকে এই টেস্টটি দেওয়া যাবে।</p>
-      </Shell>
-    );
+    const premium = await hasPremium(user.id).catch(() => false);
+
+    if (!premium) {
+      return (
+        <Shell>
+          <div className="text-5xl">🔒</div>
+          <h1 className="mt-4 text-xl font-bold text-slate-800">{test.title}</h1>
+          <p className="mt-2 text-sm text-slate-600">এটি একটি প্রিমিয়াম মডেল টেস্ট।</p>
+          <p className="mt-1 text-xs text-slate-500">
+            একটা প্যাকেজ নিলেই মেয়াদ পর্যন্ত সব প্রিমিয়াম পরীক্ষা দিতে পারবেন।
+          </p>
+          <div className="mt-6 grid w-full max-w-xs gap-3">
+            <Link
+              href="/packages"
+              className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-3 text-sm font-bold text-white shadow hover:opacity-90"
+            >
+              👑 প্যাকেজ নিন
+            </Link>
+            <Link
+              href="/model-test"
+              className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            >
+              ← সব পরীক্ষা
+            </Link>
+          </div>
+        </Shell>
+      );
+    }
   }
 
   const questions = Array.isArray(test.questions) ? (test.questions as unknown as ExamQuestion[]) : [];
@@ -201,3 +223,5 @@ export default async function ModelTestPage({
     />
   );
 }
+
+// ===== ফাইল শেষ =====
