@@ -200,6 +200,9 @@ model Post {
   excerpt         String?
   focusKeyword    String?
   keywords        String[]  @default([])
+  views           Int       @default(0)
+
+  @@index([views])
 }
 
 model Category {
