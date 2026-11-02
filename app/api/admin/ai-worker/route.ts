@@ -1,12 +1,51 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { NCTB_CLASSES } from "@/lib/nctb-data";
 
 export const maxDuration = 60; 
 export const dynamic = "force-dynamic";
 
+// CQ-তে সময় বাঁচাতে প্রতি অংশে ৩টি (ai-agent ফাইলেও একই সংখ্যা থাকবে)
+const CQ_PER_PART = 3;
+const SQ_PER_PART = 10;
+
 function cleanOptionText(text: string) {
   if (!text) return "";
   return text.replace(/[✓✔☑]/g, "").replace(/\[?(উত্তর|Ans|সঠিক|Correct).*?\]?/gi, "").replace(/\s+/g, " ").trim();
+}
+
+function normDifficulty(d: unknown): "EASY" | "MEDIUM" | "HARD" {
+  const v = String(d ?? "").toUpperCase();
+  return v === "EASY" || v === "HARD" ? v : "MEDIUM";
+}
+
+function s(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+// NCTB ডাটা থেকে বিষয়ের অধ্যায়/টপিকের তালিকা বের করা
+function chapterListFor(category?: string | null, subject?: string | null): string[] {
+  if (!category || !subject) return [];
+  const classes = NCTB_CLASSES as any[];
+  const cls =
+    classes.find((c) => c.class === category) ||
+    classes.find((c) => c.class === `Class ${category}`);
+  const sub = cls?.subjects?.find((x: any) => x.name === subject);
+  if (!sub) return [];
+  const direct: string[] = Array.isArray(sub.chapters) ? sub.chapters : [];
+  if (direct.length) return direct;
+  const groups: any[] = Array.isArray(sub.subCategories) ? sub.subCategories : [];
+  return groups.flatMap((g) => (Array.isArray(g.topics) ? g.topics : []));
+}
+
+// AI-র দেওয়া অধ্যায়ের নাম তালিকার সাথে মেলানো
+function pickChapter(raw: unknown, list: string[], fallback: string): string {
+  const r = s(raw);
+  if (!r) return fallback;
+  if (!list.length) return r;
+  if (list.includes(r)) return r;
+  const near = list.find((c) => c.includes(r) || r.includes(c));
+  return near || fallback;
 }
 
 export async function GET() {
@@ -34,11 +73,35 @@ export async function GET() {
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) throw new Error("DEEPSEEK_API_KEY সেট করা নেই!");
 
+    // টাস্কের ধরন: BLOG / CQ / SQ / (বাকি সব = MCQ)
+    const kind: "BLOG" | "CQ" | "SQ" | "MCQ" =
+      task.type === "BLOG" ? "BLOG" : task.type === "CQ" ? "CQ" : task.type === "SQ" ? "SQ" : "MCQ";
+
+    // অধ্যায় বাছা না থাকলে AI নিজে প্রতিটি প্রশ্নের অধ্যায় বলবে
+    const isAll = !task.topic || task.topic.trim() === "সকল অধ্যায়";
+    const chapters = isAll ? chapterListFor(task.category, task.subject) : [];
+
     let systemPrompt = "";
     let existingQs: any[] = []; 
     const contextText = `Class: ${task.category || "Not specified"}, Subject: ${task.subject || "Not specified"}, Topic: ${task.topic || task.prompt}`;
 
-    if (task.type === "BLOG") {
+    // 🎯 বাড়তি নির্দেশনা (অধ্যায় বাছা থাকলেও এখন কাজ করবে)
+    const topicLabel = (task.topic || task.prompt || "").trim();
+    const extra = (task.prompt || "").trim();
+    const extraText =
+      extra && extra !== topicLabel
+        ? `ADDITIONAL INSTRUCTIONS FROM THE ADMIN (follow these carefully): ${extra}`
+        : "";
+
+    // 🎯 অধ্যায়ের নাম বলার নির্দেশ (শুধু অধ্যায় না বাছলে)
+    const chapterRule = isAll
+      ? chapters.length > 0
+        ? `Each question MUST include a "chapter" field. Copy the chapter name EXACTLY (character by character) from this list, choosing the chapter the question truly belongs to. Spread the questions across different chapters:\n${chapters.map((c) => "- " + c).join("\n")}`
+        : `Each question MUST include a "chapter" field with the Bengali name of the chapter it belongs to.`
+      : "";
+    const chapterJson = isAll ? `, "chapter": "অধ্যায়ের নাম"` : "";
+
+    if (kind === "BLOG") {
       // ব্লগের জন্য প্রম্পট
       let partInstruction = "";
       if (task.part === 1) partInstruction = `Write Part 1 (approx 700 words): Introduction, basic concepts.`;
@@ -47,25 +110,31 @@ export async function GET() {
 
       systemPrompt = `You are an expert Bengali blogger. Write a detailed blog post for: "${contextText}". ${partInstruction} Return ONLY a valid JSON object: { "title": "...", "slug": "...", "body": "<h2>...</h2><p>...</p>", "tags": "tag1, tag2", "focusKeyword": "...", "keywords": "kw1, kw2", "metaTitle": "...", "metaDescription": "..." }`;
     } else {
-      // 🎯 MCQ-এর জন্য আগের প্রশ্নগুলো ফেচ করা
+      // 🎯 আগের প্রশ্নগুলো ফেচ করা (একই ধরনের প্রশ্ন)
       existingQs = await db.question.findMany({
         where: { 
-          topic: task.topic || undefined, 
+          topic: isAll ? undefined : task.topic || undefined, 
           subject: task.subject || undefined, 
-          category: task.category || undefined 
+          category: task.category || undefined,
+          ...(kind === "MCQ" ? { correct: { not: "" } } : { correct: "" })
         },
-        select: { text: true }, take: 150, orderBy: { createdAt: "desc" }
+        select: { text: true }, take: kind === "MCQ" ? 150 : 80, orderBy: { createdAt: "desc" }
       });
-      
-      const avoidText = existingQs.length > 0 
-        ? `CRITICAL WARNING: The following questions ALREADY EXIST in our database. You MUST NOT generate any of them again. Generate completely new and different questions:\n${existingQs.map(q => q.text).join("\n")}` 
-        : "";
 
-      // 🎯 ৩ ধরনের প্রশ্ন তৈরির কড়াকড়ি নির্দেশনা
-      systemPrompt = `You are an expert Bangladeshi teacher. Generate exactly 10 high-quality MCQs for: "${contextText}". 
+      if (kind === "MCQ") {
+        const avoidText = existingQs.length > 0 
+          ? `CRITICAL WARNING: The following questions ALREADY EXIST in our database. You MUST NOT generate any of them again. Generate completely new and different questions:\n${existingQs.map(q => q.text).join("\n")}` 
+          : "";
+
+        // 🎯 ৩ ধরনের প্রশ্ন তৈরির কড়াকড়ি নির্দেশনা
+        systemPrompt = `You are an expert Bangladeshi teacher. Generate exactly 10 high-quality MCQs for: "${contextText}". 
       This is part ${task.part} of ${task.totalParts}. 
       
       ${avoidText}
+
+      ${extraText}
+
+      ${chapterRule}
       
       YOU MUST FOLLOW THIS EXACT DISTRIBUTION:
       - 6 Direct Questions (সাধারণ প্রশ্ন): Just a question and 4 options.
@@ -78,11 +147,62 @@ export async function GET() {
       3. Cover DIFFERENT parts of the syllabus.
       4. DO NOT break the JSON format.
       
-      Return ONLY a valid JSON object: { "questions": [ { "text": "প্রশ্ন", "options": { "A": "ক", "B": "খ", "C": "গ", "D": "ঘ" }, "correct": "A", "explanation": "ব্যাখ্যা", "difficulty": "EASY" | "MEDIUM" | "HARD" } ] }`;
+      Return ONLY a valid JSON object: { "questions": [ { "text": "প্রশ্ন", "options": { "A": "ক", "B": "খ", "C": "গ", "D": "ঘ" }, "correct": "A", "explanation": "ব্যাখ্যা", "difficulty": "EASY" | "MEDIUM" | "HARD"${chapterJson} } ] }`;
+      } else if (kind === "CQ") {
+        const avoidText = existingQs.length > 0
+          ? `The following questions ALREADY EXIST. Do NOT repeat them or use the same stimulus. Create completely new ones:\n${existingQs.map(q => q.text.slice(0, 120)).join("\n")}`
+          : "";
+
+        systemPrompt = `You are an expert Bangladeshi teacher who writes NCTB-style creative questions (সৃজনশীল প্রশ্ন). Generate exactly ${CQ_PER_PART} creative questions for: "${contextText}".
+      This is part ${task.part} of ${task.totalParts}.
+
+      ${avoidText}
+
+      ${extraText}
+
+      ${chapterRule}
+
+      EACH creative question MUST have:
+      - "stimulus": a short, original stimulus (উদ্দীপক) of 3-5 lines in Bengali (a real-life scenario, passage, data or situation related to the topic).
+      - "k" (ক): a knowledge-based question (জ্ঞানমূলক), 1 mark, directly from the textbook.
+      - "kh" (খ): a comprehension-based question (অনুধাবনমূলক), 2 marks.
+      - "g" (গ): an application-based question (প্রয়োগমূলক), 3 marks, must use the stimulus.
+      - "gh" (ঘ): a higher-order thinking question (উচ্চতর দক্ষতামূলক), 4 marks, analysis/evaluation using the stimulus.
+      - "answers": a short model answer for each of k, kh, g, gh. Keep k answer to 1 line, kh to 2-3 lines, g and gh to about 40-60 words each.
+
+      CRITICAL RULES:
+      1. Write everything in Bengali.
+      2. Cover DIFFERENT parts of the syllabus in each question.
+      3. DO NOT break the JSON format.
+
+      Return ONLY a valid JSON object: { "questions": [ { "stimulus": "উদ্দীপক", "k": "ক-এর প্রশ্ন", "kh": "খ-এর প্রশ্ন", "g": "গ-এর প্রশ্ন", "gh": "ঘ-এর প্রশ্ন", "answers": { "k": "...", "kh": "...", "g": "...", "gh": "..." }, "difficulty": "EASY" | "MEDIUM" | "HARD"${chapterJson} } ] }`;
+      } else {
+        const avoidText = existingQs.length > 0
+          ? `The following questions ALREADY EXIST. Do NOT repeat them. Create completely new and different questions:\n${existingQs.map(q => q.text.slice(0, 120)).join("\n")}`
+          : "";
+
+        systemPrompt = `You are an expert Bangladeshi teacher. Generate exactly ${SQ_PER_PART} short-answer questions (সংক্ষিপ্ত প্রশ্ন) for: "${contextText}".
+      This is part ${task.part} of ${task.totalParts}.
+
+      ${avoidText}
+
+      ${extraText}
+
+      ${chapterRule}
+
+      RULES:
+      1. Each question must be clear and answerable in 2-4 lines (e.g. "...কী?", "...কাকে বলে?", "...ব্যাখ্যা করো", "...পার্থক্য লেখো").
+      2. Give a short model answer for each question (1-3 sentences, under 40 words).
+      3. Write everything in Bengali.
+      4. Cover DIFFERENT parts of the syllabus.
+      5. DO NOT break the JSON format.
+
+      Return ONLY a valid JSON object: { "questions": [ { "text": "প্রশ্ন", "answer": "নমুনা উত্তর", "difficulty": "EASY" | "MEDIUM" | "HARD"${chapterJson} } ] }`;
+      }
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000); 
+    const timeoutId = setTimeout(() => controller.abort(), kind === "CQ" ? 50000 : 45000); 
 
     const res = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
@@ -91,8 +211,8 @@ export async function GET() {
         model: "deepseek-chat",
         messages: [{ role: "system", content: "Output ONLY valid JSON." }, { role: "user", content: systemPrompt }],
         response_format: { type: "json_object" },
-        temperature: 0.8, // ভ্যারাইটি বাড়ানোর জন্য
-        max_tokens: 5000
+        temperature: 0.8, // ভ্যারাইটি বাড়ানোর জন্য
+        max_tokens: kind === "CQ" ? 6500 : 5000
       }),
       signal: controller.signal
     });
@@ -103,7 +223,7 @@ export async function GET() {
 
     const data = await res.json();
     let content = data?.choices?.[0]?.message?.content;
-    if (!content) throw new Error("AI থেকে কোনো উত্তর পাওয়া যায়নি।");
+    if (!content) throw new Error("AI থেকে কোনো উত্তর পাওয়া যায়নি।");
 
     content = content.replace(/```json/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(content);
@@ -118,7 +238,7 @@ export async function GET() {
       }
     }
 
-    if (task.type === "BLOG") {
+    if (kind === "BLOG") {
       // ব্লগ সেভ
       const tagsArray = typeof parsed.tags === 'string' ? parsed.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [];
       const keywordsArray = typeof parsed.keywords === 'string' ? parsed.keywords.split(',').map((k: string) => k.trim()).filter(Boolean) : [];
@@ -138,7 +258,7 @@ export async function GET() {
           await db.post.update({ where: { id: savedPostId }, data: { body: existingPost.body + "\n" + parsed.body } });
         }
       }
-    } else {
+    } else if (kind === "MCQ") {
       // 🎯 MCQ সেভ
       const questionsList = parsed.questions || parsed.mcqs || [];
       if (!Array.isArray(questionsList) || questionsList.length === 0) throw new Error("AI সঠিকভাবে কোনো প্রশ্ন তৈরি করতে পারেনি।");
@@ -152,7 +272,7 @@ export async function GET() {
         return true;
       });
 
-      if (uniqueQuestions.length === 0) throw new Error("AI শুধু পুরোনো প্রশ্নই দিয়েছে। নতুন প্রশ্ন পেতে আবার চেষ্টা করুন।");
+      if (uniqueQuestions.length === 0) throw new Error("AI শুধু পুরোনো প্রশ্নই দিয়েছে। নতুন প্রশ্ন পেতে আবার চেষ্টা করুন।");
 
       await (db.question.createMany as any)({
         data: uniqueQuestions.map((q: any) => ({
@@ -167,17 +287,112 @@ export async function GET() {
           explanation: q.explanation || "",
           category: task.category || "সাধারণ", 
           subject: task.subject || "সাধারণ", 
-          topic: task.topic || "সাধারণ",
-          difficulty: (q.difficulty && ["EASY", "MEDIUM", "HARD"].includes(q.difficulty.toUpperCase())) ? q.difficulty.toUpperCase() : "MEDIUM", 
+          topic: isAll ? pickChapter(q.chapter, chapters, "সাধারণ") : (task.topic as string),
+          difficulty: (q.difficulty && ["EASY", "MEDIUM", "HARD"].includes(String(q.difficulty).toUpperCase())) ? String(q.difficulty).toUpperCase() : "MEDIUM", 
           lang: "Bangla", 
           approved: false, 
           source: "AI_GENERATOR"
         }))
       });
+    } else if (kind === "CQ") {
+      // 🎯 CQ (সৃজনশীল) সেভ
+      const rawList = parsed.questions || parsed.cqs || [];
+      if (!Array.isArray(rawList) || rawList.length === 0) throw new Error("AI সঠিকভাবে কোনো সৃজনশীল প্রশ্ন তৈরি করতে পারেনি।");
+
+      const existingTexts = new Set(existingQs.map(q => q.text.trim().toLowerCase()));
+
+      const valid = rawList
+        .map((q: any) => {
+          const a = q.answers || q.ans || {};
+          return {
+            stimulus: s(q.stimulus ?? q.text),
+            k: s(q.k ?? q["ক"]),
+            kh: s(q.kh ?? q["খ"]),
+            g: s(q.g ?? q["গ"]),
+            gh: s(q.gh ?? q["ঘ"]),
+            ak: s(a.k ?? a["ক"]),
+            akh: s(a.kh ?? a["খ"]),
+            ag: s(a.g ?? a["গ"]),
+            agh: s(a.gh ?? a["ঘ"]),
+            difficulty: q.difficulty,
+            chapter: q.chapter,
+          };
+        })
+        .filter((v: any) => {
+          if (!v.stimulus || !v.k || !v.kh || !v.g || !v.gh) return false;
+          const key = v.stimulus.toLowerCase();
+          if (existingTexts.has(key)) return false;
+          existingTexts.add(key);
+          return true;
+        });
+
+      if (valid.length === 0) throw new Error("AI সম্পূর্ণ সৃজনশীল প্রশ্ন দিতে পারেনি। আবার চেষ্টা করুন।");
+
+      await (db.question.createMany as any)({
+        data: valid.map((v: any) => ({
+          text: v.stimulus,
+          options: {
+            stimulus: v.stimulus,
+            "ক": v.k,
+            "খ": v.kh,
+            "গ": v.g,
+            "ঘ": v.gh,
+            ans: { "ক": v.ak, "খ": v.akh, "গ": v.ag, "ঘ": v.agh },
+          },
+          correct: "",
+          explanation: "",
+          category: task.category || "সাধারণ",
+          subject: task.subject || "সাধারণ",
+          topic: isAll ? pickChapter(v.chapter, chapters, "সাধারণ") : (task.topic as string),
+          difficulty: normDifficulty(v.difficulty),
+          lang: "Bangla",
+          approved: false,
+          source: "AI_GENERATOR",
+        })),
+      });
+    } else {
+      // 🎯 SQ (সংক্ষিপ্ত) সেভ
+      const rawList = parsed.questions || parsed.sqs || [];
+      if (!Array.isArray(rawList) || rawList.length === 0) throw new Error("AI সঠিকভাবে কোনো সংক্ষিপ্ত প্রশ্ন তৈরি করতে পারেনি।");
+
+      const existingTexts = new Set(existingQs.map(q => q.text.trim().toLowerCase()));
+
+      const valid = rawList
+        .map((q: any) => ({
+          text: s(q.text ?? q.question),
+          answer: s(q.answer ?? q.ans),
+          difficulty: q.difficulty,
+          chapter: q.chapter,
+        }))
+        .filter((v: any) => {
+          if (!v.text) return false;
+          const key = v.text.toLowerCase();
+          if (existingTexts.has(key)) return false;
+          existingTexts.add(key);
+          return true;
+        });
+
+      if (valid.length === 0) throw new Error("AI শুধু পুরোনো প্রশ্নই দিয়েছে। নতুন প্রশ্ন পেতে আবার চেষ্টা করুন।");
+
+      await (db.question.createMany as any)({
+        data: valid.map((v: any) => ({
+          text: v.text,
+          options: { answer: v.answer },
+          correct: "",
+          explanation: v.answer,
+          category: task.category || "সাধারণ",
+          subject: task.subject || "সাধারণ",
+          topic: isAll ? pickChapter(v.chapter, chapters, "সাধারণ") : (task.topic as string),
+          difficulty: normDifficulty(v.difficulty),
+          lang: "Bangla",
+          approved: false,
+          source: "AI_GENERATOR",
+        })),
+      });
     }
 
     await db.aiTask.update({ where: { id: task.id }, data: { status: "COMPLETED" } });
-    return new NextResponse("সফলভাবে কাজ সম্পন্ন হয়েছে!", { status: 200 }); 
+    return new NextResponse("সফলভাবে কাজ সম্পন্ন হয়েছে!", { status: 200 }); 
 
   } catch (error: any) {
     console.error("Worker Error:", error.message);
@@ -185,3 +400,5 @@ export async function GET() {
     return new NextResponse(`Error: ${error.message}`, { status: 500 }); 
   }
 }
+
+// ===== ফাইল শেষ =====
