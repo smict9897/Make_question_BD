@@ -8,13 +8,26 @@ import { NCTB_CLASSES } from "@/lib/nctb-data";
 type GenType = "BLOG" | "MCQ" | "CQ" | "SQ";
 type QKind = "MCQ" | "CQ" | "SQ";
 
-// সৃজনশীল প্রশ্নের ক/খ/গ/ঘ
-const CQ_KEYS: [string, string][] = [
+// সৃজনশীল প্রশ্নের ক/খ/গ/ঘ (৪ অংশ)
+const CQ4: [string, string][] = [
   ["ক", "জ্ঞানমূলক · ১"],
   ["খ", "অনুধাবনমূলক · ২"],
   ["গ", "প্রয়োগমূলক · ৩"],
   ["ঘ", "উচ্চতর দক্ষতা · ৪"],
 ];
+
+// গণিতের সৃজনশীল (৩ অংশ: ক-২, খ-৪, গ-৪)
+const CQ3: [string, string][] = [
+  ["ক", "২ নম্বর"],
+  ["খ", "৪ নম্বর"],
+  ["গ", "৪ নম্বর"],
+];
+
+// প্রশ্নে ঘ থাকলে ৪ অংশ, না থাকলে ৩ অংশ
+function cqKeysOf(o: any): [string, string][] {
+  const has4 = o && typeof o["ঘ"] === "string" && o["ঘ"].trim().length > 0;
+  return has4 ? CQ4 : CQ3;
+}
 
 // প্রশ্ন কোন ধরনের তা বের করা
 function kindOf(q: any): QKind {
@@ -235,8 +248,9 @@ export default function AdminAIGenerator() {
     if (k === "MCQ") {
       setEditData({ id: q.id, kind: k, text: q.text || "", options: { ...opts }, correct: q.correct || "A", explanation: q.explanation || "", topic: q.topic || "" });
     } else if (k === "CQ") {
+      const three = cqKeysOf(opts).length === 3;
       setEditData({
-        id: q.id, kind: k, text: q.text || "",
+        id: q.id, kind: k, three, text: q.text || "",
         options: { ...opts, stimulus: opts.stimulus || q.text || "", ans: { ...(opts.ans || {}) } },
         correct: "", explanation: "", topic: q.topic || "",
       });
@@ -259,10 +273,16 @@ export default function AdminAIGenerator() {
         explanation: editData.explanation, topic: editData.topic,
       };
     } else if (editData.kind === "CQ") {
+      // ৩ অংশের প্রশ্নে ঘ সেভ হবে না
+      const opts: any = { ...editData.options, ans: { ...(editData.options.ans || {}) } };
+      if (editData.three) {
+        delete opts["ঘ"];
+        delete opts.ans["ঘ"];
+      }
       payload = {
         action: "update", id: editData.id,
-        text: editData.options.stimulus || editData.text,
-        options: editData.options, topic: editData.topic,
+        text: opts.stimulus || editData.text,
+        options: opts, topic: editData.topic,
       };
     } else {
       payload = {
@@ -356,6 +376,9 @@ export default function AdminAIGenerator() {
                 প্রশ্নের সংখ্যা {type === "CQ" ? "(প্রতি অংশে ৩টি করে)" : "(১০টি করে বাড়ে)"}
               </label>
               <input type="number" value={mcqCount} onChange={(e) => setMcqCount(Number(e.target.value))} className="w-full rounded-lg border border-blue-200 p-2 text-sm mt-1 bg-white" min={countMin} step={countStep} />
+              {type === "CQ" && /গণিত/.test(subject) && (
+                <p className="mt-1 text-[11px] font-bold text-emerald-700">গণিতের সৃজনশীলে ৩ অংশ (ক-২, খ-৪, গ-৪) হবে।</p>
+              )}
             </div>
           )}
 
@@ -491,6 +514,7 @@ export default function AdminAIGenerator() {
               const isEditing = editingId === q.id && !!editData;
               const k = kindOf(q);
               const o = q.options && typeof q.options === "object" ? q.options : {};
+              const cqKeys = cqKeysOf(o);
               return (
                 <div key={q.id} className={`rounded-xl border p-4 transition-all ${isEditing ? "border-blue-500 bg-white ring-1 ring-blue-500" : "border-slate-200 bg-slate-50/30"}`}>
                   <div className="flex items-start gap-3">
@@ -534,11 +558,11 @@ export default function AdminAIGenerator() {
                                 <p className="text-xs font-bold text-slate-600 mb-1">উদ্দীপক</p>
                                 <textarea value={editData.options.stimulus || ""} onChange={(e) => setOpt("stimulus", e.target.value)} className="w-full rounded-lg border p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none" rows={4} />
                               </div>
-                              {CQ_KEYS.map(([key, label]) => (
+                              {(editData.three ? CQ3 : CQ4).map(([key, label]) => (
                                 <div key={key} className="rounded-lg bg-slate-100 p-2 space-y-1">
                                   <p className="text-xs font-bold text-slate-600">({key}) {label}</p>
                                   <textarea value={editData.options[key] || ""} onChange={(e) => setOpt(key, e.target.value)} className="w-full rounded border p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500" rows={2} placeholder="প্রশ্ন" />
-                                  <textarea value={editData.options.ans?.[key] || ""} onChange={(e) => setAns(key, e.target.value)} className="w-full rounded border p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500" rows={2} placeholder="নমুনা উত্তর" />
+                                  <textarea value={editData.options.ans?.[key] || ""} onChange={(e) => setAns(key, e.target.value)} className="w-full rounded border p-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500" rows={3} placeholder="নমুনা উত্তর" />
                                 </div>
                               ))}
                             </>
@@ -589,9 +613,9 @@ export default function AdminAIGenerator() {
                             <>
                               <p className="text-sm font-bold text-slate-800 whitespace-pre-line">{i + 1}. {o.stimulus || q.text}</p>
                               <div className="mt-2 space-y-2 text-xs text-slate-700">
-                                {CQ_KEYS.map(([key, label]) => (
+                                {cqKeys.map(([key, label]) => (
                                   <div key={key} className="rounded-lg bg-white border border-slate-200 p-2">
-                                    <p className="font-bold">({key}) {o[key]} <span className="text-[10px] font-normal text-slate-400">[{label}]</span></p>
+                                    <p className="font-bold whitespace-pre-line">({key}) {o[key]} <span className="text-[10px] font-normal text-slate-400">[{label}]</span></p>
                                     {o.ans?.[key] && <p className="mt-1 text-emerald-700 whitespace-pre-line">উত্তর: {o.ans[key]}</p>}
                                   </div>
                                 ))}
