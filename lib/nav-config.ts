@@ -37,6 +37,13 @@ export const NAV_ITEMS: NavNode[] = [
     link("মডেল টেস্ট ও এক্সাম", "/tests"),
   ]),
 
+  group("🎯 মডেল টেস্ট", [
+    link("📝 সব মডেল টেস্ট", "/model-test"),
+    link("🏆 Global Leaderboard", "/model-test/leaderboard"),
+    link("👑 Premium প্যাকেজ", "/packages"),
+    link("👤 আমার প্রোফাইল", "/profile"),
+  ]),
+
   group("চাকরি", [
     group("NTRCA শিক্ষক নিবন্ধন", [
       link("স্কুল পর্যায়-২", "/ntrca/school-2"),
@@ -52,3 +59,5 @@ export const NAV_ITEMS: NavNode[] = [
   link("ব্লগ", "/blog"),
   link("সংরক্ষিত বিষয়সমূহ", "/saved"),
 ];
+
+// ===== ফাইল শেষ =====
