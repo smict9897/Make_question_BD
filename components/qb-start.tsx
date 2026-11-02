@@ -23,6 +23,28 @@ function findClassData(key: string): NctbClass | undefined {
   return undefined;
 }
 
+// 🎯 ক্লাসের সব সম্ভাব্য নাম (যেমন "8" আর "Class 8" দুটোই)
+function categoryAliases(key: string): string[] {
+  if (!key) return [];
+  const set = new Set<string>([key]);
+
+  if (/^[1-9]$|^1[0-2]$/.test(key)) {
+    set.add(`Class ${key}`);
+  }
+  const m = key.match(/^Class\s*(\d+)$/i);
+  if (m) {
+    set.add(m[1]);
+    set.add(`Class ${m[1]}`);
+  }
+  if (key === "SSC") {
+    ["Class 9", "Class 10", "Class 9-10", "9", "10"].forEach((v) => set.add(v));
+  }
+  if (key === "HSC") {
+    ["Class 11-12", "Class 11", "Class 12", "11", "12"].forEach((v) => set.add(v));
+  }
+  return Array.from(set);
+}
+
 export default function QbStart({ pairs }: { pairs: Pair[] }) {
   const router = useRouter();
   const [category, setCategory] = useState("");
@@ -37,10 +59,16 @@ export default function QbStart({ pairs }: { pairs: Pair[] }) {
     [selectedClassData]
   );
 
-  const dbSubjects = useMemo(
-    () => Array.from(new Set(pairs.filter((p) => !category || p.category === category).map((p) => p.subject))),
-    [pairs, category]
-  );
+  const dbSubjects = useMemo(() => {
+    const cats = categoryAliases(category);
+    return Array.from(
+      new Set(
+        pairs
+          .filter((p) => !category || cats.includes(p.category))
+          .map((p) => p.subject)
+      )
+    );
+  }, [pairs, category]);
 
   const subjects = useMemo(
     () => Array.from(new Set([...curriculumSubjects, ...dbSubjects])),
@@ -202,3 +230,4 @@ export default function QbStart({ pairs }: { pairs: Pair[] }) {
     </div>
   );
 }
+// ===== ফাইল শেষ =====
