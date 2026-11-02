@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import { staff } from "@/lib/guard";
 import { auth } from "@/auth";
 import { generateMcqQuestions } from "@/lib/model-test-ai";
+import type { AiQuestion } from "@/lib/model-test-ai";
+import { NCTB_CLASSES } from "@/lib/nctb-data";
 
 const baseSchema = z.object({
   title: z.string().min(3, "টাইটেল কমপক্ষে ৩ অক্ষর হতে হবে"),
@@ -55,6 +57,116 @@ function parseTimes(startStr: string, endStr: string) {
   return { startAt, endAt };
 }
 
+// ==================== প্রশ্নব্যাংকে সংরক্ষণ ====================
+
+const LETTERS = ["A", "B", "C", "D", "E", "F"];
+
+// "ক্যাটাগরি - টপিক" হলে শুধু টপিকের নাম বের করে (প্রশ্নব্যাংকের নামের সাথে মেলানোর জন্য)
+function topicNameFor(className: string, subject: string, chapter: string): string {
+  const cls = NCTB_CLASSES.find((c) => c.class === className);
+  const sub = cls?.subjects.find((s) => s.name === subject);
+  const groups = sub?.subCategories ?? [];
+  for (const g of groups) {
+    const prefix = `${g.category} - `;
+    if (chapter.startsWith(prefix)) {
+      const rest = chapter.slice(prefix.length).trim();
+      if (rest) return rest;
+    }
+  }
+  return chapter.trim() || "সাধারণ";
+}
+
+function normDifficulty(v: string): "EASY" | "MEDIUM" | "HARD" {
+  const u = String(v || "").toUpperCase();
+  if (u === "EASY") return "EASY";
+  if (u === "HARD") return "HARD";
+  return "MEDIUM";
+}
+
+// মডেল টেস্টের প্রশ্নগুলো প্রশ্নব্যাংকে (approved: false) রাখে।
+// এখানে কোনো সমস্যা হলে মডেল টেস্ট তৈরি আটকাবে না।
+async function saveToQuestionBank(params: {
+  className: string;
+  subject: string;
+  chapter: string;
+  difficulty: string;
+  language: string;
+  questions: AiQuestion[];
+}): Promise<void> {
+  try {
+    const { className, subject, chapter, difficulty, language, questions } = params;
+
+    const topic = topicNameFor(className, subject, chapter);
+    const lang = language === "English" ? "English" : "Bangla";
+    const diff = normDifficulty(difficulty);
+
+    const rows: {
+      text: string;
+      options: Record<string, string>;
+      correct: string;
+      explanation: string;
+    }[] = [];
+
+    const seen = new Set<string>();
+    for (const q of questions) {
+      const text = String(q.question || "").trim();
+      if (!text || seen.has(text)) continue;
+      if (!Array.isArray(q.options) || q.options.length < 2) continue;
+      if (q.correctAnswer < 0 || q.correctAnswer >= LETTERS.length) continue;
+
+      const options: Record<string, string> = {};
+      q.options.slice(0, LETTERS.length).forEach((o, i) => {
+        options[LETTERS[i]] = String(o ?? "").trim();
+      });
+      const correct = LETTERS[q.correctAnswer];
+      if (!options[correct]) continue;
+
+      seen.add(text);
+      rows.push({
+        text,
+        options,
+        correct,
+        explanation: String(q.explanation || "").trim(),
+      });
+    }
+
+    if (rows.length === 0) return;
+
+    // আগে থেকে থাকা একই প্রশ্ন বাদ দেওয়া
+    const existing = await db.question.findMany({
+      where: {
+        category: className,
+        subject,
+        text: { in: rows.map((r) => r.text) },
+      },
+      select: { text: true },
+    });
+    const have = new Set(existing.map((e) => e.text));
+    const fresh = rows.filter((r) => !have.has(r.text));
+    if (fresh.length === 0) return;
+
+    await db.question.createMany({
+      data: fresh.map((r) => ({
+        subject,
+        category: className,
+        topic,
+        difficulty: diff,
+        lang,
+        text: r.text,
+        options: r.options,
+        correct: r.correct,
+        explanation: r.explanation,
+        approved: false,
+        source: "MODEL_TEST",
+      })),
+    });
+  } catch (e) {
+    console.error("প্রশ্নব্যাংকে সেভ করা যায়নি:", e);
+  }
+}
+
+// ==================== মডেল টেস্ট অ্যাকশন ====================
+
 export async function createModelTest(fd: FormData): Promise<void> {
   await staff();
   const session = await auth();
@@ -89,6 +201,16 @@ export async function createModelTest(fd: FormData): Promise<void> {
       endAt,
       createdBy,
     },
+  });
+
+  // 🎯 একই প্রশ্ন প্রশ্নব্যাংকেও রাখা (অনুমোদনের অপেক্ষায়)
+  await saveToQuestionBank({
+    className: d.className,
+    subject: d.subject,
+    chapter: d.chapter,
+    difficulty: d.difficulty,
+    language: d.language,
+    questions,
   });
 
   revalidatePath("/admin/model-test");
@@ -138,6 +260,16 @@ export async function updateModelTest(fd: FormData): Promise<void> {
         data: { ...common, questions: questions },
       }),
     ]);
+
+    // 🎯 নতুন প্রশ্নগুলোও প্রশ্নব্যাংকে রাখা (অনুমোদনের অপেক্ষায়)
+    await saveToQuestionBank({
+      className: d.className,
+      subject: d.subject,
+      chapter: d.chapter,
+      difficulty: d.difficulty,
+      language: d.language,
+      questions,
+    });
   } else {
     await db.modelTest.update({
       where: { id },
@@ -157,3 +289,5 @@ export async function deleteModelTest(id: string): Promise<void> {
   ]);
   revalidatePath("/admin/model-test");
 }
+
+// ===== ফাইল শেষ =====
