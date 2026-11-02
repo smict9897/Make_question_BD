@@ -34,7 +34,7 @@ export const NAV_ITEMS: NavNode[] = [
     link("একাডেমিক নোটস", "/academic"),
     link("বিশ্ববিদ্যালয় ভর্তি", "/admission"),
     link("ভিডিও লেসন", "/videos"),
-    link("মডেল টেস্ট ও এক্সাম", "/tests"),
+    link("মডেল টেস্ট ও এক্সাম", "/model-test"),
   ]),
 
   group("🎯 মডেল টেস্ট", [
