@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import ModelTestLoginButton from "@/components/model-test-login-button";
 import ProfileNameEditor from "@/components/profile-name-editor";
+import ProfilePremiumCard from "@/components/profile-premium-card";
 
 export const dynamic = "force-dynamic";
 
@@ -148,9 +149,11 @@ export default async function ProfilePage() {
 
   const quickActions = [
     { href: "#history", icon: "📝", label: "আমার পরীক্ষা" },
+    { href: "/model-test", icon: "🎯", label: "মডেল টেস্ট" },
+    { href: "/model-test/leaderboard", icon: "🏆", label: "Leaderboard" },
+    { href: "/packages", icon: "👑", label: "প্যাকেজ" },
     { href: "/exam", icon: "🤖", label: "AI পরীক্ষা" },
     { href: "/tests", icon: "📚", label: "প্র্যাকটিস টেস্ট" },
-    { href: "/", icon: "🏠", label: "হোম" },
   ];
 
   return (
@@ -228,25 +231,15 @@ export default async function ProfilePage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:col-span-2">
-          <div className="flex items-center gap-1 text-sm font-bold text-amber-600">
-            👑 ফ্রি অ্যাকাউন্ট
-          </div>
-          <p className="mt-2 text-xs text-slate-500">প্রিমিয়ামে যা পাবেন:</p>
-          <ul className="mt-1 space-y-1 text-xs text-slate-600">
-            <li>✅ সব প্রিমিয়াম পরীক্ষা আনলক</li>
-            <li>✅ বিশেষ মডেল টেস্ট</li>
-          </ul>
-          <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-center text-xs font-semibold text-amber-700">
-            প্যাকেজ সিস্টেম শীঘ্রই আসছে
-          </div>
+        <div className="sm:col-span-2">
+          <ProfilePremiumCard userId={user.id} />
         </div>
       </div>
 
       {/* Quick actions */}
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="text-sm font-bold text-slate-800">Quick Actions</div>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
           {quickActions.map((q) => (
             <Link
               key={q.label}
@@ -322,3 +315,5 @@ export default async function ProfilePage() {
     </div>
   );
 }
+
+// ===== ফাইল শেষ =====
