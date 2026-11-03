@@ -73,7 +73,7 @@ function Announcement({ text }: { text: string }) {
     <div className="flex items-center gap-2 bg-gradient-to-r from-blue-800 to-royal px-3 py-2 text-sm text-white">
       <span aria-hidden="true">🔔</span>
       <p className="min-w-0 flex-1 truncate">{text}</p>
-      <Link href="/blog" className="flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-900">
+      <Link href="/blog" className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#ffffff] px-3 py-1 text-xs font-bold text-slate-900">
         এখনই দেখুন<ArrowRight size={14} />
       </Link>
       <button onClick={close} aria-label="Close notice" className="shrink-0 rounded p-1 hover:bg-white/10"><X size={18} /></button>
@@ -143,7 +143,7 @@ export default function SiteHeader({ user, logout, notice }: { user: U; logout: 
               />
               <div className="flex flex-col justify-center">
                 <span className="font-black text-sm sm:text-lg tracking-tight leading-none select-none">
-                  <span className="text-slate-950 dark:text-white">SAIFUL</span>
+                  <span className="text-navy-900">SAIFUL</span>
                   <span className="text-blue-600 dark:text-blue-400">SIR</span>
                   <span className="text-orange-500 dark:text-orange-400">.COM</span>
                 </span>
