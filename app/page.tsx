@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { getSite } from "@/lib/site";
 import RecentArticles from "@/components/RecentArticles";
 import PromoBookPopup from "@/components/PromoBookPopup";
+import HomeFeatureCards from "@/components/home-feature-cards";
 import { getPromoSettings } from "@/app/actions/promo";
 
 export const dynamic = "force-dynamic";
@@ -147,8 +148,15 @@ export default async function Home() {
             <input name="q" placeholder="বই বা বিষয়ের নাম লিখুন..." aria-label="Search" className="min-w-0 flex-1 bg-transparent px-4 py-2.5 text-sm outline-none" />
             <button className="flex items-center gap-2 rounded-full bg-royal px-5 py-2.5 font-semibold text-white"><Search size={18} />খুঁজুন</button>
           </form>
+        </div>
 
-          {/* 🎯 ঠিক সার্চ বারের নিচে আপনার রিসেন্ট আর্টিকেল */}
+        {/* ✨ আমাদের সব সুবিধা — সার্চ বারের নিচে, রিসেন্ট আর্টিকেলের আগে */}
+        <div className="-mx-4 mt-6">
+          <HomeFeatureCards aiHref="/quiz#ai" />
+        </div>
+
+        <div className="mx-auto mt-6 max-w-4xl">
+          {/* 🎯 আপনার রিসেন্ট আর্টিকেল */}
           <RecentArticles posts={posts} />
         </div>
       </section>
