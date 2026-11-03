@@ -11,6 +11,7 @@ import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import InstallPrompt from "@/components/InstallPrompt";
+import { SessionProvider } from "next-auth/react"; // 🎯 নতুন যুক্ত করা হলো
 
 // 🎯 ১. আদর্শলিপিতে শুধুমাত্র বাংলা ইউনিকোড রেঞ্জ
 const bn = localFont({
@@ -100,29 +101,32 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           fontFamily: 'var(--font-en), "Times New Roman", var(--font-bn), serif',
         }}
       >
-        <SiteHeader user={u ? { name: u.name, role: u.role } : null} logout={logout} notice={n?.text ?? "স্বাগতম SaifulSir.com এ"} />
+        {/* 🎯 SessionProvider দিয়ে পুরো অ্যাপকে মুড়ে দেওয়া হলো */}
+        <SessionProvider>
+          <SiteHeader user={u ? { name: u.name, role: u.role } : null} logout={logout} notice={n?.text ?? "স্বাগতম SaifulSir.com এ"} />
 
-        <main>{children}</main>
+          <main>{children}</main>
 
-        <SiteFooter />
+          <SiteFooter />
 
-        {/* মোবাইলের নিচের স্মার্ট অ্যাপ বার */}
-        <MobileBottomNav user={u ? { name: u.name, role: u.role } : null} />
+          {/* মোবাইলের নিচের স্মার্ট অ্যাপ বার */}
+          <MobileBottomNav user={u ? { name: u.name, role: u.role } : null} />
 
-        {wa && (
-          <a
-            href={wa}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="WhatsApp"
-            className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg md:bottom-6 hover:scale-105 transition-transform"
-          >
-            <MessageCircle size={26} />
-          </a>
-        )}
+          {wa && (
+            <a
+              href={wa}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="WhatsApp"
+              className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg md:bottom-6 hover:scale-105 transition-transform"
+            >
+              <MessageCircle size={26} />
+            </a>
+          )}
 
-        <InstallPrompt />
-        <Analytics />
+          <InstallPrompt />
+          <Analytics />
+        </SessionProvider>
       </body>
     </html>
   );

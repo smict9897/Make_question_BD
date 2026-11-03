@@ -154,6 +154,11 @@ export default function AdminKeywordTool({ onSelectKeyword, onApplySeo, initialT
   const [packLoading, setPackLoading] = useState(false);
   const [applied, setApplied] = useState<Set<string>>(new Set());
 
+  // 👇 নতুন আর্টিকেল জেনারেটরের স্টেট 👇
+  const [articleLoading, setArticleLoading] = useState(false);
+  const [articleText, setArticleText] = useState("");
+  // 👆 --------------------------------- 👆
+
   const [saved, setSaved] = useState<SavedList[] | null>(null);
   const [savedOpen, setSavedOpen] = useState(false);
   const [savedLoading, setSavedLoading] = useState(false);
@@ -196,6 +201,7 @@ export default function AdminKeywordTool({ onSelectKeyword, onApplySeo, initialT
       setInserted(new Set());
       setPack(null);
       setApplied(new Set());
+      setArticleText(""); // নতুন সার্চে আর্টিকেল রিসেট হবে
     }
     setLoading(false);
   }
@@ -252,9 +258,50 @@ export default function AdminKeywordTool({ onSelectKeyword, onApplySeo, initialT
     else {
       setPack(r.pack);
       setApplied(new Set());
+      setArticleText(""); // নতুন প্যাকে আর্টিকেল রিসেট হবে
     }
     setPackLoading(false);
   }
+
+  // 👇 নতুন আর্টিকেল জেনারেট করার ফাংশন 👇
+  async function generateArticle() {
+    if (!pack || !pack.outline.length) return;
+    setArticleLoading(true);
+    setError("");
+    setNotice("");
+    
+    const kwList = selected.length ? selected.map((k) => k.keyword) : items.map((k) => k.keyword);
+
+    const r = await call<{ content: string }>("/api/admin/generate-article", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        topic: topic.trim() || "Blog Post", 
+        outline: pack.outline,
+        keywords: kwList.slice(0, 10)
+      }),
+    });
+
+    if (!r.ok) {
+      setError(r.error);
+    } else {
+      setArticleText(r.content);
+      setNotice("আর্টিকেল তৈরি হয়েছে! নিচে দেখুন।");
+    }
+    setArticleLoading(false);
+  }
+
+  // 👇 এডিটরে পাঠানোর ফাংশন 👇
+  function sendToComposer() {
+    if (!articleText) return;
+    try {
+      window.dispatchEvent(new CustomEvent("cms:body", { detail: { content: articleText } }));
+      setNotice("আর্টিকেলটি মূল এডিটরে পাঠানো হয়েছে!");
+    } catch {
+      setError("এডিটরে পাঠানো যায়নি।");
+    }
+  }
+  // 👆 --------------------------------- 👆
 
   function applySeo(patch: SeoPatch, keys: string[]) {
     onApplySeo?.(patch);
@@ -319,6 +366,7 @@ export default function AdminKeywordTool({ onSelectKeyword, onApplySeo, initialT
     setPack(null);
     setError("");
     setNotice("সংরক্ষিত তালিকা খোলা হয়েছে।");
+    setArticleText("");
   }
 
   const canInsert = !!onSelectKeyword;
@@ -529,6 +577,7 @@ export default function AdminKeywordTool({ onSelectKeyword, onApplySeo, initialT
                 k="tags"
                 patch={{ tags: pack.hashtags.map((h) => `#${h}`).join(" ") }}
               />
+              
               {pack.outline.length > 0 && (
                 <div className="rounded-lg border border-slate-200 bg-white p-2 text-sm">
                   <p className="text-xs text-slate-500">পোস্টের H2 কাঠামো</p>
@@ -540,6 +589,52 @@ export default function AdminKeywordTool({ onSelectKeyword, onApplySeo, initialT
                   </button>
                 </div>
               )}
+
+              {/* 👇 আর্টিকেল জেনারেটর ও প্রিভিউ বাটন 👇 */}
+              {pack.outline.length > 0 && (
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    disabled={articleLoading}
+                    onClick={() => void generateArticle()}
+                    className={`${btn} border-purple-600 bg-purple-600 text-white`}
+                  >
+                    {articleLoading ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
+                    {articleLoading ? "আর্টিকেল লেখা হচ্ছে..." : "সম্পূর্ণ আর্টিকেল তৈরি করুন"}
+                  </button>
+                </div>
+              )}
+
+              {articleText && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="flex flex-wrap justify-between items-center mb-2 gap-2">
+                    <p className="text-xs font-semibold text-slate-700">তৈরি হওয়া আর্টিকেল</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void copy(articleText, "generated-article")}
+                        className={`${btn} border-slate-300 bg-white py-1`}
+                      >
+                        {copied === "generated-article" ? <Check size={13} className="text-green-600" /> : <Copy size={13} />} কপি করুন
+                      </button>
+                      <button
+                        type="button"
+                        onClick={sendToComposer}
+                        className={`${btn} border-green-600 bg-green-600 text-white py-1 hover:bg-green-700`}
+                      >
+                        <PlusCircle size={13} /> এডিটরে পাঠান
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    readOnly
+                    value={articleText}
+                    className="w-full h-64 rounded-lg border border-slate-200 p-2 text-sm font-mono text-slate-700 focus:outline-none"
+                  />
+                </div>
+              )}
+              {/* 👆 ------------------------------------------------- 👆 */}
+
               {pack.faqs.length > 0 && (
                 <div className="rounded-lg border border-slate-200 bg-white p-2 text-sm">
                   <p className="text-xs text-slate-500">FAQ প্রশ্ন (পোস্টের শেষে দিন)</p>

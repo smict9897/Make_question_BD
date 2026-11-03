@@ -8,6 +8,38 @@ export const metadata = { title: "প্রশ্ন নির্বাচন" }
 type SP = { category?: string; subject?: string; topic?: string; q?: string; page?: string };
 const PER_PAGE = 50;
 
+// 🎯 ক্লাসের সব সম্ভাব্য নাম একসঙ্গে মেলানো (যেমন "8" আর "Class 8" দুটোই)
+// ডাটাবেসের কিছু বদলায় না, শুধু খোঁজার সময় কাজ করে
+function categoryAliases(key: string): string[] {
+  if (!key) return [];
+  const set = new Set<string>([key]);
+
+  if (/^[1-9]$|^1[0-2]$/.test(key)) {
+    set.add(`Class ${key}`);
+  }
+
+  const m = key.match(/^Class\s*(\d+)$/i);
+  if (m) {
+    set.add(m[1]);
+    set.add(`Class ${m[1]}`);
+  }
+
+  if (key === "SSC") {
+    ["Class 9", "Class 10", "Class 9-10", "9", "10"].forEach((v) => set.add(v));
+  }
+  if (key === "HSC") {
+    ["Class 11-12", "Class 11", "Class 12", "11", "12"].forEach((v) => set.add(v));
+  }
+  if (key === "Class 9" || key === "Class 10" || key === "Class 9-10") {
+    set.add("SSC");
+  }
+  if (key === "Class 11-12" || key === "Class 11" || key === "Class 12") {
+    set.add("HSC");
+  }
+
+  return Array.from(set);
+}
+
 export default async function CreatePage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const category = sp.category ?? "";
@@ -16,9 +48,11 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
   const q = (sp.q ?? "").trim();
   const page = Math.max(1, Number(sp.page) || 1);
 
+  const cats = categoryAliases(category);
+
   const where = {
     approved: true,
-    ...(category ? { category } : {}),
+    ...(category ? { category: { in: cats } } : {}),
     ...(subject ? { subject } : {}),
     ...(topic ? { topic } : {}),
     ...(q ? { text: { contains: q, mode: "insensitive" as const } } : {}),
@@ -27,9 +61,13 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
   const [rows, total, topicRows] = await Promise.all([
     db.question.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * PER_PAGE, take: PER_PAGE }),
     db.question.count({ where }),
-    db.question.findMany({ where: { approved: true, ...(category ? { category } : {}) }, select: { topic: true }, distinct: ["topic"] }),
+    db.question.findMany({
+      where: { approved: true, ...(category ? { category: { in: cats } } : {}) },
+      select: { topic: true },
+      distinct: ["topic"],
+    }),
   ]);
-  
+
   const topics = topicRows.map((t) => t.topic).filter(Boolean);
   const pages = Math.max(1, Math.ceil(total / PER_PAGE));
 
@@ -44,13 +82,13 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
     // 🎯 সঠিকভাবে MCQ, SHORT এবং CQ ডিটেক্ট করার লজিক
     let itemType = "MCQ";
     const opts = (r.options as any) || {};
-    
+
     if (!r.correct) {
-      // যদি অপশনে উদ্দীপক বা ক/খ/গ/ঘ থাকে, তবেই সেটি CQ, অন্যথায় SHORT
+      // যদি অপশনে উদ্দীপক বা ক/খ/গ/ঘ থাকে, তবেই সেটি CQ, অন্যথায় SHORT
       const isCq = opts.stimulus || opts.k || opts.ক || opts.subQuestions || (r.text && r.text.includes("(ক)"));
       itemType = isCq ? "CQ" : "SHORT";
     }
-    
+
     return {
       id: r.id,
       text: r.text,
@@ -101,3 +139,4 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
     </main>
   );
 }
+// ===== ফাইল শেষ =====

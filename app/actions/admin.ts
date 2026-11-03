@@ -49,7 +49,7 @@ export async function setRole(id: string, fd: FormData): Promise<void> {
   const rawRole = String(fd.get("role") || "").trim();
   const role = z.enum(["ADMIN", "TEACHER", "STUDENT"]).parse(rawRole);
 
-  if (!targetId) throw new Error("User ID পাওয়া যায়নি।");
+  if (!targetId) throw new Error("User ID পাওয়া যায়নি।");
 
   // 🔒 মাস্টার সুপার অ্যাডমিন প্রোটেকশন (smict9897)
   const targetUser = await db.user.findUnique({ where: { id: targetId } });
@@ -112,7 +112,7 @@ export async function deletePage(id: string): Promise<void> {
 
 export async function deleteTest(id: string): Promise<void> {
   await staff();
-  await db.$transaction([db.attempt.deleteMany({ where: { testId: id } }), db.modelTest.delete({ where: { id } })]);
+  await db.$transaction([db.practiceAttempt.deleteMany({ where: { testId: id } }), db.practiceTest.delete({ where: { id } })]);
   revalidatePath("/tests");
   revalidatePath("/admin/tests");
 }

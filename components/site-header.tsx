@@ -41,7 +41,16 @@ const navTree: NavItem[] = [
   { label: "জব", href: "/jobs" },
   { label: "ই-বুক", href: "/library" },
   { label: "ভিডিও", href: "/videos" },
-  { label: "মডেল টেস্ট", href: "/tests" },
+  {
+    label: "মডেল টেস্ট",
+    href: "/model-test",
+    children: [
+      { label: "📝 সব মডেল টেস্ট", href: "/model-test" },
+      { label: "🏆 Global Leaderboard", href: "/model-test/leaderboard" },
+      { label: "👑 Premium প্যাকেজ", href: "/packages" },
+      { label: "👤 আমার প্রোফাইল", href: "/profile" },
+    ],
+  },
   { label: "টুলস", href: "/tools" },
   { label: "ব্লগ", href: "/blog" },
 ];
@@ -161,7 +170,7 @@ export default function SiteHeader({ user, logout, notice }: { user: U; logout: 
                 </Link>
 
                 {item.children && (
-                  <div className="absolute left-0 top-full hidden w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-lg group-hover:block dark:bg-slate-900 dark:border-slate-800">
+                  <div className="absolute left-0 top-full hidden w-52 rounded-xl border border-slate-200 bg-white p-2 shadow-lg group-hover:block dark:bg-slate-900 dark:border-slate-800">
                     {item.children.map((sub) => (
                       <Link
                         key={sub.href}
@@ -177,7 +186,7 @@ export default function SiteHeader({ user, logout, notice }: { user: U; logout: 
             ))}
           </nav>
 
-          {/* 🎯 ঠিক চিহ্নিত স্থানে আকর্ষণীয় 'বইঘর' বাটন ও ডানপাশের কন্ট্রোল */}
+          {/* 🎯 ঠিক চিহ্নিত স্থানে আকর্ষণীয় 'বইঘর' বাটন ও ডানপাশের কন্ট্রোল */}
           <div className="flex items-center gap-2 shrink-0">
             
             {/* 📚 আপনার চিহ্নিত স্থানের 'বইঘর' বাটন */}
@@ -222,3 +231,5 @@ export default function SiteHeader({ user, logout, notice }: { user: U; logout: 
     </>
   );
 }
+
+// ===== ফাইল শেষ =====

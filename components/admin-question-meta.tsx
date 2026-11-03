@@ -1,48 +1,67 @@
 "use client";
 import { useMemo, useState } from "react";
-import curriculum from "../nctb-curriculum.json";
+import { NCTB_CLASSES, type NctbClass } from "../lib/nctb-data";
 
 const CLASSES = ["1", "2", "3", "4", "5", "6", "7", "8", "SSC", "HSC", "Admission", "Job"];
 const OTHER = "__other__";
 const input = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:bg-slate-900 dark:border-slate-700";
 
-const CLASS_MAP: Record<string, string> = {
-  "6": "Class 6",
-  "7": "Class 7",
-  "8": "Class 8",
-  "SSC": "Class 9-10",
-  "HSC": "Class 11-12",
-};
+const LOW = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-function getCurriculumSubjects(cat: string): string[] {
-  const key = CLASS_MAP[cat];
-  if (!key) return [];
-  const cls = curriculum.classes.find((c) => c.class === key);
-  return cls ? cls.subjects.map((s) => s.name) : [];
-}
-
-function getCurriculumChapters(cat: string, subject: string): string[] {
-  const key = CLASS_MAP[cat];
-  if (!key) return [];
-  const cls = curriculum.classes.find((c) => c.class === key);
-  if (!cls) return [];
-  const sub = cls.subjects.find((s) => s.name === subject);
-  return sub ? sub.chapters : [];
+function findClassData(key: string): NctbClass | undefined {
+  if (!key) return undefined;
+  if (LOW.includes(key)) {
+    return NCTB_CLASSES.find((c) => c.class === `Class ${key}`);
+  }
+  if (key === "SSC") {
+    return NCTB_CLASSES.find((c) => /9|10|SSC/i.test(c.class));
+  }
+  if (key === "HSC") {
+    return NCTB_CLASSES.find((c) => /11|12|HSC/i.test(c.class));
+  }
+  return undefined;
 }
 
 export default function AdminQuestionMeta() {
   const [category, setCategory] = useState("SSC");
   const [subjSel, setSubjSel] = useState("");
   const [subjOther, setSubjOther] = useState("");
+
+  // টপিক সিলেকশনের জন্য state (ক্যাটাগরি/ইউনিট + নির্দিষ্ট টপিক)
+  const [topCatSel, setTopCatSel] = useState(""); // subCategories থাকলে ইউনিট/ক্যাটাগরি
   const [topSel, setTopSel] = useState("");
   const [topOther, setTopOther] = useState("");
 
-  const subjects = useMemo(() => getCurriculumSubjects(category), [category]);
+  const selectedClassData = useMemo(() => findClassData(category), [category]);
+
+  const subjects = useMemo(
+    () => (selectedClassData ? selectedClassData.subjects.map((s) => s.name) : []),
+    [selectedClassData]
+  );
+
   const subjIsOther = subjSel === OTHER || subjects.length === 0;
   const subject = subjIsOther ? subjOther.trim() : subjSel;
 
-  const chapters = useMemo(() => getCurriculumChapters(category, subjSel), [category, subjSel]);
-  const topIsOther = topSel === OTHER || (subject !== "" && chapters.length === 0);
+  const currentSubjectData = useMemo(
+    () => selectedClassData?.subjects.find((s) => s.name === subjSel),
+    [selectedClassData, subjSel]
+  );
+
+  const flatChapters = useMemo(() => currentSubjectData?.chapters ?? [], [currentSubjectData]);
+  const groupedTopics = useMemo(() => currentSubjectData?.subCategories ?? [], [currentSubjectData]);
+  const hasGroups = groupedTopics.length > 0;
+
+  const topicsInSelectedCategory = useMemo(() => {
+    if (!topCatSel) return [];
+    const grp = groupedTopics.find((g) => g.category === topCatSel);
+    return grp?.topics ?? [];
+  }, [groupedTopics, topCatSel]);
+
+  // hasGroups হলে topicsInSelectedCategory থেকে, নাহলে flatChapters থেকে অপশন আসবে
+  const chapterOptions = hasGroups ? topicsInSelectedCategory : flatChapters;
+
+  const topIsOther =
+    topSel === OTHER || (subject !== "" && chapterOptions.length === 0 && (!hasGroups || !!topCatSel));
   const topic = topIsOther ? topOther.trim() : topSel;
 
   return (
@@ -56,6 +75,7 @@ export default function AdminQuestionMeta() {
           setCategory(e.target.value);
           setSubjSel("");
           setSubjOther("");
+          setTopCatSel("");
           setTopSel("");
           setTopOther("");
         }}
@@ -75,6 +95,7 @@ export default function AdminQuestionMeta() {
           onChange={(e) => {
             setSubjSel(e.target.value);
             setSubjOther("");
+            setTopCatSel("");
             setTopSel("");
             setTopOther("");
           }}
@@ -108,8 +129,28 @@ export default function AdminQuestionMeta() {
         />
       )}
 
-      {/* Chapter */}
-      {chapters.length > 0 ? (
+      {/* 🎯 ইউনিট/ক্যাটাগরি (শুধু subCategories থাকলে দেখাবে) */}
+      {hasGroups && (
+        <select
+          className={input}
+          value={topCatSel}
+          onChange={(e) => {
+            setTopCatSel(e.target.value);
+            setTopSel("");
+            setTopOther("");
+          }}
+        >
+          <option value="">ইউনিট/ক্যাটাগরি বাছুন</option>
+          {groupedTopics.map((g) => (
+            <option key={g.category} value={g.category}>
+              {g.category}
+            </option>
+          ))}
+        </select>
+      )}
+
+      {/* Chapter / Topic */}
+      {chapterOptions.length > 0 ? (
         <select
           className={input}
           value={topSel}
@@ -117,9 +158,10 @@ export default function AdminQuestionMeta() {
             setTopSel(e.target.value);
             setTopOther("");
           }}
+          disabled={hasGroups && !topCatSel}
         >
           <option value="">অধ্যায় বাছুন</option>
-          {chapters.map((t) => (
+          {chapterOptions.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>
@@ -127,16 +169,18 @@ export default function AdminQuestionMeta() {
           <option value={OTHER}>অন্য (নিজে লিখুন)</option>
         </select>
       ) : (
-        <input
-          name="topic"
-          placeholder="অধ্যায়"
-          className={input}
-          value={topOther}
-          onChange={(e) => setTopOther(e.target.value)}
-        />
+        !hasGroups && (
+          <input
+            name="topic"
+            placeholder="অধ্যায়"
+            className={input}
+            value={topOther}
+            onChange={(e) => setTopOther(e.target.value)}
+          />
+        )
       )}
 
-      {topIsOther && chapters.length > 0 && (
+      {topIsOther && chapterOptions.length > 0 && (
         <input
           className={input}
           placeholder="অধ্যায়ের নাম লিখুন"
@@ -161,4 +205,4 @@ export default function AdminQuestionMeta() {
       <input type="hidden" name="topic" value={topic} />
     </div>
   );
-      }
+}

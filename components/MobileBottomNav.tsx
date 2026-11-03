@@ -11,7 +11,7 @@ export default function MobileBottomNav({ user }: { user?: { name?: string | nul
   const navItems = [
     { label: "হোম", href: "/", icon: Home },
     { label: "নোট", href: "/notes", icon: BookOpen },
-    { label: "AI কুইজ", href: "/ai-quiz", icon: Sparkles, highlight: true },
+    { label: "Live Online Model Test", href: "/model-test", icon: Sparkles, highlight: true },
     { label: "টুলস", href: "/tools", icon: Wrench },
     { label: user ? "প্রোফাইল" : "লগইন", href: user ? "/dashboard" : "/login", icon: User },
   ];

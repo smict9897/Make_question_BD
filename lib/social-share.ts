@@ -69,7 +69,7 @@ async function postToFacebook({
   try {
     const message = `📢 ${title}\n\n${excerpt ? `${excerpt}\n\n` : ""}সম্পূর্ণ পড়তে লিংকে ক্লিক করুন 👇`;
 
-    await fetch(`https://graph.facebook.com/v21.0/${pageId}/feed`, {
+    const res = await fetch(`https://graph.facebook.com/v21.0/${pageId}/feed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -78,8 +78,15 @@ async function postToFacebook({
         access_token: accessToken,
       }),
     });
+
+    // 🎯 নতুন যুক্ত করা হয়েছে: ফেসবুক থেকে এরর আসলে তা Vercel লগে দেখাবে
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => null);
+      console.error("Facebook Auto-Post Failed:", errorData || res.statusText);
+    }
+    
   } catch (err) {
-    console.error("Facebook Auto-Post Error:", err);
+    console.error("Facebook Auto-Post Network Error:", err);
   }
 }
 

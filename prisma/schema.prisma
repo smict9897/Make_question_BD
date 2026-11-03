@@ -19,13 +19,21 @@ enum Difficulty {
   HARD
 }
 
+enum TestStatus {
+  DRAFT
+  PUBLISHED
+}
+
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String?
-  passwordHash String?
-  role         Role     @default(STUDENT)
-  createdAt    DateTime @default(now())
+  id               String            @id @default(cuid())
+  email            String            @unique
+  name             String?
+  image            String?
+  passwordHash     String?
+  role             Role              @default(STUDENT)
+  createdAt        DateTime          @default(now())
+  attempts         Attempt[]
+  packagePurchases PackagePurchase[]
 }
 
 model Question {
@@ -79,24 +87,98 @@ model Inquiry {
   createdAt DateTime @default(now())
 }
 
-model ModelTest {
-  id          String    @id @default(cuid())
+// ================== পুরনো ফিচার: Student নিজে Question Bank থেকে Practice Test বানায় ==================
+model PracticeTest {
+  id          String            @id @default(cuid())
   title       String
+  subject     String
   minutes     Int
   questionIds Json
-  createdAt   DateTime  @default(now())
-  attempts    Attempt[]
+  createdAt   DateTime          @default(now())
+  attempts    PracticeAttempt[]
 }
 
-model Attempt {
-  id        String    @id @default(cuid())
+model PracticeAttempt {
+  id        String       @id @default(cuid())
   testId    String
-  test      ModelTest @relation(fields: [testId], references: [id])
+  test      PracticeTest @relation(fields: [testId], references: [id], onDelete: Cascade)
   userId    String
   userName  String
   score     Int
   total     Int
-  createdAt DateTime  @default(now())
+  createdAt DateTime     @default(now())
+}
+
+// ================== নতুন ফিচার: Admin AI দিয়ে Scheduled Model Test বানায় ==================
+model ModelTest {
+  id         String     @id @default(cuid())
+  title      String
+  className  String
+  subject    String
+  chapter    String
+  difficulty String
+  language   String
+  minutes    Int
+  questions  Json
+  status     TestStatus @default(DRAFT)
+  isPaid     Boolean    @default(false)
+  startAt    DateTime
+  endAt      DateTime
+  createdBy  String?
+  createdAt  DateTime   @default(now())
+  attempts   Attempt[]
+}
+
+model Attempt {
+  id           String    @id @default(cuid())
+  testId       String
+  test         ModelTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userName     String
+  userImage    String?
+  rollNumber   String    @default("0")
+  studentClass String    @default("N/A")
+  institution  String?
+  score        Int
+  total        Int
+  timeSpent    Int       @default(0)
+  warnings     Int       @default(0)
+  answers      Json? 
+  createdAt    DateTime  @default(now())
+
+  @@unique([testId, userId])
+  @@index([testId])
+  @@index([userId])
+}
+
+model Package {
+  id           String            @id @default(cuid())
+  title        String
+  description  String?
+  price        Int
+  durationDays Int
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  purchases    PackagePurchase[]
+}
+
+model PackagePurchase {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId     String
+  package       Package   @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  amount        Int
+  transactionId String
+  paymentNumber String
+  status        String    @default("PENDING")
+  approvedAt    DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
+  @@index([packageId])
 }
 
 model Post {
@@ -110,6 +192,7 @@ model Post {
   coverAlt        String?
   downloadUrl     String?
   categoryId      String?
+  chapter         String?
   tags            String[]  @default([])
   published       Boolean   @default(true)
   category        Category? @relation(fields: [categoryId], references: [id])
@@ -117,6 +200,9 @@ model Post {
   excerpt         String?
   focusKeyword    String?
   keywords        String[]  @default([])
+  views           Int       @default(0)
+
+  @@index([views])
 }
 
 model Category {
@@ -146,6 +232,7 @@ model Purchase {
   status     String   @default("PENDING")
   createdAt  DateTime @default(now())
 }
+
 model Setting {
   key   String @id
   value String
@@ -159,6 +246,7 @@ model Page {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 model TeacherProfile {
   id          String   @id @default(cuid())
   userId      String   @unique
@@ -170,4 +258,63 @@ model TeacherProfile {
   address     String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model AiTask {
+  id         String   @id @default(cuid())
+  prompt     String
+  type       String   @default("BLOG")
+  category   String?
+  subject    String?
+  topic      String?
+  status     String   @default("PENDING")
+  part       Int      @default(1)
+  totalParts Int      @default(1)
+  batchId    String?
+  postId     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+model BookStore {
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text")) @db.Text
+  title             String   @db.Text
+  author            String   @db.Text
+  category          String   @db.Text
+  coverUrl          String   @db.Text
+  pdfPrice          Float
+  pdfRegularPrice   Float?   @default(0)
+  printPrice        Float?   @default(0)
+  printRegularPrice Float?   @default(0)
+  pdfDriveUrl       String   @db.Text
+  samplePages       String   @default("[]") @db.Text
+  description       String?  @db.Text
+  specification     String?  @db.Text
+  authorBio         String?  @db.Text
+  rating            Float?   @default(4.9)
+  reviewCount       Int?     @default(25)
+  pageCount         Int?     @default(120)
+  publisher         String?  @default("সাইফুল স্যার পাবলিকেশন্স") @db.Text
+  edition           String?  @default("২০২৬-২০২৭ নতুন সংস্করণ") @db.Text
+  isFree            Boolean? @default(false)
+  isAffiliate       Boolean? @default(false)
+  affiliateUrl      String?  @default("") @db.Text
+  published         Boolean? @default(true)
+  createdAt         DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("BookStore")
+}
+
+model ExamLeaderboard {
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text")) @db.Text
+  examTitle    String   @db.Text
+  studentName  String   @db.Text
+  studentClass String   @db.Text
+  rollNumber   String   @db.Text
+  institution  String?  @db.Text
+  score        Float
+  totalMarks   Int
+  timeSpent    Int
+  createdAt    DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("ExamLeaderboard")
 }

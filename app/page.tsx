@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import { 
@@ -9,7 +8,6 @@ import {
 } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSite } from "@/lib/site";
-import { catPath } from "@/lib/cat-paths";
 import RecentArticles from "@/components/RecentArticles";
 import PromoBookPopup from "@/components/PromoBookPopup";
 import { getPromoSettings } from "@/app/actions/promo";
@@ -76,7 +74,7 @@ function Card({ it }: { it: Item }) {
         <span className="block text-xs sm:text-base font-semibold truncate">{it.en}</span>
         <span className="block text-[11px] sm:text-sm text-slate-500 truncate">{it.bn}</span>
       </span>
-      {!it.href && <span className="hidden sm:inline-block ml-auto shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">শীঘ্রই</span>}
+      {!it.href && <span className="ml-auto inline-block shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 sm:text-xs">শীঘ্রই</span>}
     </>
   );
   return it.href ? <Link href={it.href} className={`${cls} transition hover:border-royal hover:shadow`}>{inner}</Link> : <div className={`${cls} opacity-70`}>{inner}</div>;
@@ -85,9 +83,18 @@ function Card({ it }: { it: Item }) {
 const Grid = ({ items }: { items: Item[] }) => <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3">{items.map((it) => <Card key={it.en} it={it} />)}</div>;
 const fmt = (d: Date) => d.toLocaleDateString("en-GB", { dateStyle: "medium" });
 
+// র‍্যাংক ব্যাজের রং: ১ম সোনালি, ২য় রুপালি, ৩য় ব্রোঞ্জ, বাকিগুলো নীল
+const rankStyle = (i: number) =>
+  i === 0
+    ? "bg-amber-400 text-amber-950 ring-2 ring-amber-200"
+    : i === 1
+      ? "bg-slate-300 text-slate-800 ring-2 ring-slate-100"
+      : i === 2
+        ? "bg-orange-400 text-orange-950 ring-2 ring-orange-200"
+        : "bg-royal text-white";
+
 export default async function Home() {
-  // 🎯 ১. এখানে 'promo' এবং 'getPromoSettings()' যুক্ত হলো
-  const [posts, trending, quotes, cats, site, promo] = await Promise.all([
+  const [posts, topPosts, quotes, cats, site, promo] = await Promise.all([
     db.post.findMany({
       where: {
         published: true,
@@ -99,12 +106,27 @@ export default async function Home() {
       take: 4,
     }).catch(() => []),
 
-    db.resource.findMany({ orderBy: [{ downloads: "desc" }, { createdAt: "desc" }], take: 7 }).catch(() => []),
+    // 🔥 সবচেয়ে বেশি পঠিত ৫টা লেখা (ভিউ সমান হলে নতুন লেখা আগে)
+    db.post.findMany({
+      where: {
+        published: true,
+        NOT: {
+          category: { slug: "news" },
+        },
+      },
+      orderBy: [{ views: "desc" }, { createdAt: "desc" }],
+      take: 5,
+      include: { category: true },
+    }).catch(() => []),
+
     db.testimonial.findMany({ orderBy: { createdAt: "desc" }, take: 3 }).catch(() => []),
     db.category.findMany({ select: { slug: true } }).catch(() => []),
-    getSite(),
-    getPromoSettings(), // 👈 সেটিংস ফেচ করা হচ্ছে
+    getSite().catch(() => null),
+    getPromoSettings(),
   ]);
+
+  const heroTitle = site?.heroTitle ?? "SaifulSir.com — শিক্ষার সবকিছু একসাথে";
+  const heroSubtitle = site?.heroSubtitle ?? "নোট, প্রশ্ন, মডেল টেস্ট ও চাকরির প্রস্তুতি এক জায়গায়।";
 
   const slugSet = new Set(cats.map((c) => c.slug));
   const resolve = (items: Item[]) => items.map((it) => (it.slug && slugSet.has(it.slug) ? { ...it, href: `/category/${it.slug}` } : it));
@@ -117,8 +139,8 @@ export default async function Home() {
           <p className="mx-auto inline-block rounded-full bg-emerald-100 px-4 py-1.5 text-sm font-semibold text-emerald-800">
             SaifulSir.com | শিক্ষার সবকিছু একসাথে
           </p>
-          <h1 className="mt-4 text-3xl font-bold leading-tight sm:text-5xl">{site.heroTitle}</h1>
-          <p className="mt-3 text-slate-600 text-sm sm:text-base">{site.heroSubtitle}</p>
+          <h1 className="mt-4 text-3xl font-bold leading-tight sm:text-5xl">{heroTitle}</h1>
+          <p className="mt-3 text-slate-600 text-sm sm:text-base">{heroSubtitle}</p>
           
           {/* সার্চ বার */}
           <form action="/search" className="mx-auto mt-6 flex max-w-2xl items-center gap-2 rounded-full border border-slate-300 bg-white p-1.5 shadow-sm">
@@ -160,25 +182,52 @@ export default async function Home() {
         <Head>শিক্ষার্থী সেবা ও প্রয়োজনীয় অনলাইন টুলস</Head>
         <Grid items={tools} />
 
-        {/* ট্রেন্ডিং পোস্ট */}
-        <div className="mt-12 grid gap-8 lg:grid-cols-3">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-3">
-            <h2 className="flex items-center gap-2 text-xl font-bold">
-              <span className="h-3 w-3 rounded-full bg-emerald-500" />
-              TREND POSTS (সর্বাধিক পঠিত)
-            </h2>
-            {trending.length === 0 && <p className="mt-4 text-sm text-slate-600">ম্যাটেরিয়াল যোগ হলে এখানে দেখাবে।</p>}
-            <ol className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {trending.map((r, i) => (
-                <li key={r.id}>
-                  <Link href={catPath[r.category] ?? "/"} className="flex gap-3 items-start group">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-royal text-sm font-bold text-white group-hover:scale-105 transition-transform">
+        {/* 🔥 ট্রেন্ডিং পোস্ট (সবচেয়ে বেশি পঠিত ৫টা লেখা) */}
+        <div className="mt-12">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 text-lg font-bold sm:text-xl">
+                <span className="h-3 w-3 shrink-0 rounded-full bg-emerald-500" />
+                TREND POSTS (সর্বাধিক পঠিত)
+              </h2>
+              <Link href="/blog" className="shrink-0 text-xs font-semibold text-royal hover:underline sm:text-sm">
+                সব লেখা দেখুন →
+              </Link>
+            </div>
+
+            {topPosts.length === 0 && (
+              <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                লেখা প্রকাশ হলে সবচেয়ে বেশি পঠিতগুলো এখানে দেখা যাবে।
+              </p>
+            )}
+
+            <ol className="mt-4 divide-y divide-slate-100">
+              {topPosts.map((p, i) => (
+                <li key={p.id}>
+                  <Link
+                    href={`/blog/${p.slug ?? p.id}`}
+                    className="group flex items-start gap-3 py-3.5 first:pt-1 last:pb-1"
+                  >
+                    <span
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-extrabold transition-transform group-hover:scale-105 ${rankStyle(i)}`}
+                    >
                       {i + 1}
                     </span>
-                    <span className="min-w-0">
-                      <span className="rounded bg-emerald-700 px-2 py-0.5 text-xs font-bold text-white">{r.category.toUpperCase()}</span>
-                      <span className="mt-1 block font-semibold leading-snug line-clamp-2 text-sm text-slate-800 group-hover:text-royal transition-colors">{r.title}</span>
-                      <span className="text-xs text-slate-500">{fmt(r.createdAt)}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="inline-block rounded bg-emerald-700 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+                        {p.category?.name ?? "Blog"}
+                      </span>
+                      <span className="mt-1 block text-sm font-semibold leading-snug text-slate-800 transition-colors group-hover:text-royal line-clamp-2 sm:text-base">
+                        {p.title}
+                      </span>
+                      <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                        <span>{fmt(p.createdAt)}</span>
+                        {p.views > 0 && (
+                          <span className="inline-flex items-center gap-1 font-semibold text-slate-600">
+                            👁 {p.views.toLocaleString("en-US")} বার পঠিত
+                          </span>
+                        )}
+                      </span>
                     </span>
                   </Link>
                 </li>
@@ -217,9 +266,11 @@ export default async function Home() {
         </section>
       </div>
 
-      {/* 🎯 ২. হোমপেজে স্বয়ংক্রিয় প্রমোশনাল পপ-আপ মডাল */}
+      {/* 🎯 হোমপেজে স্বয়ংক্রিয় প্রমোশনাল পপ-আপ মডাল */}
       <PromoBookPopup promo={promo} />
 
     </main>
   );
 }
+
+// ===== ফাইল শেষ =====

@@ -34,7 +34,14 @@ export const NAV_ITEMS: NavNode[] = [
     link("একাডেমিক নোটস", "/academic"),
     link("বিশ্ববিদ্যালয় ভর্তি", "/admission"),
     link("ভিডিও লেসন", "/videos"),
-    link("মডেল টেস্ট ও এক্সাম", "/tests"),
+    link("মডেল টেস্ট ও এক্সাম", "/model-test"),
+  ]),
+
+  group("🎯 মডেল টেস্ট", [
+    link("📝 সব মডেল টেস্ট", "/model-test"),
+    link("🏆 Global Leaderboard", "/model-test/leaderboard"),
+    link("👑 Premium প্যাকেজ", "/packages"),
+    link("👤 আমার প্রোফাইল", "/profile"),
   ]),
 
   group("চাকরি", [
@@ -52,3 +59,5 @@ export const NAV_ITEMS: NavNode[] = [
   link("ব্লগ", "/blog"),
   link("সংরক্ষিত বিষয়সমূহ", "/saved"),
 ];
+
+// ===== ফাইল শেষ =====

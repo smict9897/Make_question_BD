@@ -26,19 +26,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Only accept Google accounts whose email Google has verified.
       return account?.provider !== "google" || profile?.email_verified === true;
     },
-    async jwt({ token, user, account }) {
+    async jwt({ token, user, account, profile }) {
       if (account?.provider === "google" && token.email) {
         const email = token.email.toLowerCase();
         const isAdmin = email === process.env.ADMIN_EMAIL?.toLowerCase();
+        const googleImage =
+          typeof (profile as { picture?: string } | undefined)?.picture === "string"
+            ? (profile as { picture?: string }).picture
+            : undefined;
         // passwordHash is cleared: the email is now proven by Google, so nobody
         // who pre-registered this email with a password can keep access.
         const u = await db.user.upsert({
           where: { email },
-          update: { passwordHash: null, ...(isAdmin ? { role: "ADMIN" as const } : {}) },
-          create: { email, name: token.name ?? null, role: isAdmin ? "ADMIN" : "STUDENT" },
+          update: {
+            passwordHash: null,
+            ...(isAdmin ? { role: "ADMIN" as const } : {}),
+            ...(googleImage ? { image: googleImage } : {}),
+          },
+          create: {
+            email,
+            name: token.name ?? null,
+            image: googleImage ?? null,
+            role: isAdmin ? "ADMIN" : "STUDENT",
+          },
         });
         token.sub = u.id;
         token.role = u.role;
+        token.picture = googleImage ?? u.image ?? token.picture;
       } else if (user) {
         token.role = user.role;
       }

@@ -3,19 +3,28 @@
 import React, { useState, useMemo } from "react";
 import { Sparkles, Zap, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import LiveExamPlayer, { ExamQuestion } from "@/components/LiveExamPlayer";
-import rawCurriculum from "@/nctb-curriculum.json";
+import { NCTB_CLASSES } from "@/lib/nctb-data";
 
 const classLabelMap: Record<string, string> = {
   "Class 6": "৬ষ্ঠ শ্রেণি (Class 6)",
   "Class 7": "৭ম শ্রেণি (Class 7)",
   "Class 8": "৮ম শ্রেণি (Class 8)",
+  "Class 9": "এসএসসি (Class 9-10)",
   "Class 9-10": "এসএসসি (Class 9-10)",
   "Class 11-12": "এইচএসসি (Class 11-12)",
 };
 
+function getClassLabel(c: string) {
+  if (classLabelMap[c]) return classLabelMap[c];
+  if (/9|10/.test(c)) return `এসএসসি (${c})`;
+  if (/11|12/.test(c)) return `এইচএসসি (${c})`;
+  return c;
+}
+
 export default function ExamPage() {
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
+  const [selectedTopicCategory, setSelectedTopicCategory] = useState(""); // 🎯 ইউনিট/ক্যাটাগরি
   const [selectedChapter, setSelectedChapter] = useState("");
   const [customChapter, setCustomChapter] = useState("");
   const [difficulty, setDifficulty] = useState("মাঝারি");
@@ -29,24 +38,44 @@ export default function ExamPage() {
 
   const availableSubjects = useMemo(() => {
     if (!selectedClass) return [];
-    const foundClass = rawCurriculum.classes.find((c) => c.class === selectedClass);
+    const foundClass = NCTB_CLASSES.find((c) => c.class === selectedClass);
     return foundClass ? foundClass.subjects : [];
   }, [selectedClass]);
 
-  const availableChapters = useMemo(() => {
-    if (!selectedSubject) return [];
-    const foundSubject = availableSubjects.find((s) => s.name === selectedSubject);
-    return foundSubject && foundSubject.chapters ? foundSubject.chapters : [];
-  }, [selectedSubject, availableSubjects]);
+  const currentSubjectData = useMemo(() => {
+    return availableSubjects.find((s) => s.name === selectedSubject);
+  }, [availableSubjects, selectedSubject]);
+
+  const flatChapters = useMemo(() => currentSubjectData?.chapters ?? [], [currentSubjectData]);
+  const groupedTopics = useMemo(() => currentSubjectData?.subCategories ?? [], [currentSubjectData]);
+  const hasGroups = groupedTopics.length > 0;
+
+  const topicsInSelectedCategory = useMemo(() => {
+    if (!selectedTopicCategory) return [];
+    const grp = groupedTopics.find((g) => g.category === selectedTopicCategory);
+    return grp?.topics ?? [];
+  }, [groupedTopics, selectedTopicCategory]);
+
+  // 🎯 ড্রপডাউনে দেখানোর জন্য চূড়ান্ত তালিকা
+  const availableChapters = hasGroups ? topicsInSelectedCategory : flatChapters;
 
   const handleStartExam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedClass || !selectedSubject) {
-      setErrorMsg("দয়া করে ক্লাস এবং বিষয় নির্বাচন করুন।");
+      setErrorMsg("দয়া করে ক্লাস এবং বিষয় নির্বাচন করুন।");
       return;
     }
 
-    const finalChapter = selectedChapter === "custom" ? customChapter : (selectedChapter || "সম্পূর্ণ বই / সিলেবাস");
+    let finalChapter: string;
+    if (selectedChapter === "custom") {
+      finalChapter = customChapter;
+    } else if (hasGroups) {
+      finalChapter = selectedChapter
+        ? (selectedTopicCategory ? `${selectedTopicCategory} - ${selectedChapter}` : selectedChapter)
+        : "সম্পূর্ণ বই / সিলেবাস";
+    } else {
+      finalChapter = selectedChapter || customChapter || "সম্পূর্ণ বই / সিলেবাস";
+    }
 
     setErrorMsg("");
     setLoading(true);
@@ -70,23 +99,27 @@ export default function ExamPage() {
         setQuestions(data.questions);
         setExamReady(true);
       } else {
-        setErrorMsg("প্রশ্ন তৈরি করতে ব্যর্থ হয়েছে। আবার চেষ্টা করুন।");
+        setErrorMsg("প্রশ্ন তৈরি করতে ব্যর্থ হয়েছে। আবার চেষ্টা করুন।");
       }
     } catch (err) {
-      setErrorMsg("সার্ভারে সমস্যা হয়েছে। ইন্টারনেট কানেকশন চেক করুন।");
+      setErrorMsg("সার্ভারে সমস্যা হয়েছে। ইন্টারনেট কানেকশন চেক করুন।");
     } finally {
       setLoading(false);
     }
   };
 
   if (examReady && questions.length > 0) {
-    const finalChapterText = selectedChapter === "custom" ? customChapter : selectedChapter;
+    const finalChapterText =
+      selectedChapter === "custom"
+        ? customChapter
+        : hasGroups
+        ? [selectedTopicCategory, selectedChapter].filter(Boolean).join(" - ")
+        : selectedChapter;
     return (
       <LiveExamPlayer
         examTitle={`${selectedClass} • ${selectedSubject} ${finalChapterText ? `(${finalChapterText})` : ""}`}
         questions={questions}
         timeInMinutes={parseInt(count)}
-        negativeMark={0.5}
       />
     );
   }
@@ -100,8 +133,8 @@ export default function ExamPage() {
               <Zap size={22} className="text-white" />
             </div>
             <div>
-              <h2 className="text-base font-bold">এক ক্লিকে প্রশ্ন তৈরি করুন</h2>
-              <p className="text-xs text-emerald-100">ক্লাস, বিষয় ও অধ্যায় দিন, AI প্রশ্ন বানিয়ে দেবে</p>
+              <h1 className="text-base font-bold">লাইভ অনলাইন এক্সাম </h1>
+              <p className="text-xs text-emerald-100">ক্লাস, বিষয় ও অধ্যায় দিন, AI প্রশ্ন বানিয়ে দেবে</p>
             </div>
           </div>
           <ArrowRight size={20} className="text-emerald-200" />
@@ -127,27 +160,29 @@ export default function ExamPage() {
                 onChange={(e) => {
                   setSelectedClass(e.target.value);
                   setSelectedSubject("");
+                  setSelectedTopicCategory("");
                   setSelectedChapter("");
                   setCustomChapter("");
                 }}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-blue-500 shadow-xs"
               >
                 <option value="">ক্লাস বাছুন</option>
-                {rawCurriculum.classes.map((c) => (
+                {NCTB_CLASSES.map((c) => (
                   <option key={c.class} value={c.class}>
-                    {classLabelMap[c.class] || c.class}
+                    {getClassLabel(c.class)}
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">বিষয়</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">বিষয়</label>
               <select
                 disabled={!selectedClass}
                 value={selectedSubject}
                 onChange={(e) => {
                   setSelectedSubject(e.target.value);
+                  setSelectedTopicCategory("");
                   setSelectedChapter("");
                   setCustomChapter("");
                 }}
@@ -155,16 +190,41 @@ export default function ExamPage() {
                   !selectedClass ? "bg-slate-50 text-slate-400 border-slate-200" : "bg-white text-slate-800 border-slate-200 focus:border-blue-500"
                 }`}
               >
-                <option value="">{selectedClass ? "বিষয় নির্বাচন করুন" : "আগে ক্লাস বাছুন"}</option>
+                <option value="">{selectedClass ? "বিষয় নির্বাচন করুন" : "আগে ক্লাস বাছুন"}</option>
                 {availableSubjects.map((sub) => (
                   <option key={sub.name} value={sub.name}>{sub.name}</option>
                 ))}
               </select>
             </div>
 
+            {/* 🎯 ইউনিট/ক্যাটাগরি (শুধু subCategories থাকলে দেখাবে) */}
+            {selectedSubject && hasGroups && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">ইউনিট/ক্যাটাগরি</label>
+                <select
+                  value={selectedTopicCategory}
+                  onChange={(e) => {
+                    setSelectedTopicCategory(e.target.value);
+                    setSelectedChapter("");
+                    setCustomChapter("");
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-blue-500 shadow-xs"
+                >
+                  <option value="">ইউনিট/ক্যাটাগরি বাছুন</option>
+                  {groupedTopics.map((g) => (
+                    <option key={g.category} value={g.category}>{g.category}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">অধ্যায়</label>
-              {availableChapters.length > 0 ? (
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">অধ্যায়</label>
+              {hasGroups && !selectedTopicCategory ? (
+                <select disabled className="w-full rounded-2xl border px-4 py-3 text-sm bg-slate-50 text-slate-400 border-slate-200">
+                  <option>আগে ইউনিট/ক্যাটাগরি বাছুন</option>
+                </select>
+              ) : availableChapters.length > 0 ? (
                 <select
                   disabled={!selectedSubject}
                   value={selectedChapter}
@@ -173,7 +233,7 @@ export default function ExamPage() {
                     !selectedSubject ? "bg-slate-50 text-slate-400 border-slate-200" : "bg-white text-slate-800 border-slate-200 focus:border-blue-500"
                   }`}
                 >
-                  <option value="">সম্পূর্ণ বই / সকল অধ্যায়</option>
+                  <option value="">সম্পূর্ণ বই / সকল অধ্যায়</option>
                   {availableChapters.map((chap) => (
                     <option key={chap} value={chap}>{chap}</option>
                   ))}
@@ -182,7 +242,7 @@ export default function ExamPage() {
               ) : (
                 <input
                   type="text"
-                  placeholder={selectedSubject ? "অধ্যায় বা টপিকের নাম লিখুন (ঐচ্ছিক)" : "আগে বিষয় দিন"}
+                  placeholder={selectedSubject ? "অধ্যায় বা টপিকের নাম লিখুন (ঐচ্ছিক)" : "আগে বিষয় দিন"}
                   disabled={!selectedSubject}
                   value={customChapter}
                   onChange={(e) => setCustomChapter(e.target.value)}
@@ -193,7 +253,7 @@ export default function ExamPage() {
               {selectedChapter === "custom" && (
                 <input
                   type="text"
-                  placeholder="নির্দিষ্ট কোনো টপিক বা অধ্যায়ের নাম লিখুন..."
+                  placeholder="নির্দিষ্ট কোনো টপিক বা অধ্যায়ের নাম লিখুন..."
                   value={customChapter}
                   onChange={(e) => setCustomChapter(e.target.value)}
                   className="mt-2 w-full rounded-2xl border border-blue-300 bg-blue-50/30 px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-500"
@@ -247,12 +307,12 @@ export default function ExamPage() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 hover:bg-blue-700 py-3.5 text-sm font-bold text-white shadow-md shadow-blue-500/25 active:scale-98 transition disabled:opacity-70"
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 hover:bg-blue-700 py-3.5 text-sm font-bold text-white shadow-md shadow-blue-500/25 active:scale-[0.99]"
             >
               {loading ? (
                 <>
                   <Loader2 size={18} className="animate-spin" />
-                  <span>জেমিনি AI দিয়ে প্রশ্ন তৈরি হচ্ছে...</span>
+                  <span>জেমিনি AI দিয়ে প্রশ্ন তৈরি হচ্ছে...</span>
                 </>
               ) : (
                 <>

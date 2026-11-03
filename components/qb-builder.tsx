@@ -69,6 +69,28 @@ function shuffle<T>(arr: T[], seed: number): T[] {
   return a;
 }
 
+// 🎯 সৃজনশীল প্রশ্নের অংশ ও নম্বর
+// ঘ খালি থাকলে (গণিত): ক-২, খ-৪, গ-৪
+// ঘ থাকলে (অন্য বিষয়): ক-১, খ-২, গ-৩, ঘ-৪
+function cqParts(sq?: Item["subQuestions"]): { label: string; text: string; mark: string }[] {
+  if (!sq) return [];
+  const k = (sq.k || "").trim();
+  const kh = (sq.kh || "").trim();
+  const g = (sq.g || "").trim();
+  const gh = (sq.gh || "").trim();
+  const three = !gh;
+  const marks = three
+    ? { ক: "২", খ: "৪", গ: "৪", ঘ: "" }
+    : { ক: "১", খ: "২", গ: "৩", ঘ: "৪" };
+  const all = [
+    { label: "ক", text: k, mark: marks["ক"] },
+    { label: "খ", text: kh, mark: marks["খ"] },
+    { label: "গ", text: g, mark: marks["গ"] },
+    { label: "ঘ", text: gh, mark: marks["ঘ"] },
+  ];
+  return all.filter((p) => p.text);
+}
+
 const printCss = `
 @page { size: A4; margin: 12mm; }
 @media print {
@@ -309,19 +331,26 @@ export default function QbBuilder() {
             <div className="mb-6">
               <h3 className="text-center font-bold text-sm border-b border-black inline-block mx-auto mb-2">গ-বিভাগ: সৃজনশীল প্রশ্ন</h3>
               <div className="space-y-4">
-                {viewCqs.map((q, i) => (
-                  <div key={q.id} className="text-[13px] leading-snug border-b border-dashed border-gray-300 pb-2">
-                    <b>{i + 1}.</b> <span contentEditable={edit}><MathText text={q.stimulus || q.text || ""} /></span>
-                    {q.subQuestions && (
-                      <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-1 pl-2">
-                        <p><b>(ক)</b> <MathText text={q.subQuestions.k} /></p>
-                        <p><b>(খ)</b> <MathText text={q.subQuestions.kh} /></p>
-                        <p><b>(গ)</b> <MathText text={q.subQuestions.g} /></p>
-                        <p><b>(ঘ)</b> <MathText text={q.subQuestions.gh} /></p>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {viewCqs.map((q, i) => {
+                  const parts = cqParts(q.subQuestions);
+                  return (
+                    <div key={q.id} className="text-[13px] leading-snug border-b border-dashed border-gray-300 pb-2">
+                      <b>{i + 1}.</b> <span contentEditable={edit} suppressContentEditableWarning><MathText text={q.stimulus || q.text || ""} /></span>
+                      {parts.length > 0 && (
+                        <div className="mt-1 grid grid-cols-1 gap-1 pl-2">
+                          {parts.map((p) => (
+                            <p key={p.label} className="flex items-start justify-between gap-2">
+                              <span>
+                                <b>({p.label})</b> <MathText text={p.text} />
+                              </span>
+                              {p.mark && <span className="shrink-0 whitespace-nowrap font-semibold">[{p.mark}]</span>}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -341,3 +370,5 @@ export default function QbBuilder() {
     </div>
   );
 }
+
+// ===== ফাইল শেষ =====

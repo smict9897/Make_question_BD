@@ -19,11 +19,21 @@ export default async function QuizPage({ searchParams }: { searchParams: Promise
   const { subject } = await searchParams;
   const role = (await auth())?.user?.role ?? null;
   const [rows, grouped] = await Promise.all([
-    db.question.findMany({ where: { approved: true, ...(subject ? { subject } : {}) }, take: 50 }).catch(() => []),
+    // শুধু MCQ (যে প্রশ্নের সঠিক উত্তর আছে) প্র্যাকটিসে আসবে; CQ/SQ বাদ
+    db.question
+      .findMany({
+        where: { approved: true, correct: { not: "" }, ...(subject ? { subject } : {}) },
+        take: 50,
+      })
+      .catch(() => []),
     db.question.groupBy({ by: ["category", "subject", "topic"], where: { approved: true } }).catch(() => []),
   ]);
   const triples = grouped.map((r) => ({ category: r.category ?? "", subject: r.subject ?? "", topic: r.topic ?? "" }));
-  const qs: Q[] = rows.sort(() => Math.random() - 0.5).slice(0, 10).map((r) => ({ id: r.id, text: r.text, options: r.options as Record<string, string>, correct: r.correct, explanation: r.explanation }));
+  const qs: Q[] = rows
+    .filter((r) => !!(r.correct && r.correct.trim()))
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 10)
+    .map((r) => ({ id: r.id, text: r.text, options: r.options as Record<string, string>, correct: r.correct, explanation: r.explanation }));
   return (
     <main className="mx-auto grid max-w-5xl gap-10 px-4 py-10 lg:grid-cols-2">
       <div className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
@@ -48,14 +58,14 @@ export default async function QuizPage({ searchParams }: { searchParams: Promise
             <Zap size={26} />
           </span>
           <span className="flex-1">
-            <span className="block text-lg font-bold">এক ক্লিকে প্রশ্ন তৈরি করুন</span>
+            <span className="block text-lg font-bold">Live Online Exam</span>
             <span className="block text-sm text-white/90">ক্লাস, বিষয় ও অধ্যায় দিন, AI প্রশ্ন বানিয়ে দেবে</span>
           </span>
           <ArrowRight size={22} />
         </a>
       </div>
       <section id="ai" className="scroll-mt-24">
-        <h1 className="mb-4 text-2xl font-bold">এক ক্লিকে প্রশ্ন তৈরি করুন (AI)</h1>
+        <h1 className="mb-4 text-2xl font-bold"> Live Online Exam(AI)</h1>
         <QuizBox triples={triples} role={role} />
       </section>
       <section><h2 className="mb-4 text-2xl font-bold">Practice from the question bank</h2>
@@ -63,3 +73,5 @@ export default async function QuizPage({ searchParams }: { searchParams: Promise
     </main>
   );
 }
+
+// ===== ফাইল শেষ =====

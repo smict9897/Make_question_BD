@@ -47,7 +47,7 @@ export default function QbPicker({ items = [] }: QbPickerProps) {
     
     // লোকাল স্টোরেজে সেভ করে পরের পেজে পাঠানো
     localStorage.setItem("qb:selected", JSON.stringify(selectedIds));
-    router.push("/question-builder/builder"); 
+    router.push("/question-builder/build"); 
   };
 
   return (

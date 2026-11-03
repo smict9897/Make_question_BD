@@ -10,9 +10,10 @@ export default {
       return token;
     },
     session({ session, token }) {
-      const u = session.user as { role?: string; id?: string };
+      const u = session.user as { role?: string; id?: string; image?: string | null };
       u.role = typeof token.role === "string" ? token.role : undefined;
       u.id = token.sub ?? "";
+      u.image = typeof token.picture === "string" ? token.picture : u.image ?? null;
       return session;
     },
     authorized({ auth, request }) {

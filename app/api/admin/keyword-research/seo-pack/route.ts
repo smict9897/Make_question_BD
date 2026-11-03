@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { callGeminiJson } from "@/lib/gemini-json";
+// ১. এখানে শুধু callGeminiJson এর জায়গায় callDeepSeekJson বসবে
+import { callDeepSeekJson } from "@/lib/deepseek"; 
 import { normalizeSeoPack } from "@/lib/keyword-research";
 
 export const maxDuration = 60;
@@ -40,9 +41,14 @@ Create an SEO pack for one blog post. Return ONLY a JSON object with exactly the
 - "outline": array of 6 to 10 H2 headings for the article, in order
 - "faqs": array of 4 to 6 question-style FAQ questions students or job seekers would ask`;
 
-  const r = await callGeminiJson(prompt, 0.6);
+  // ২. এখানে শুধু callGeminiJson এর জায়গায় callDeepSeekJson বসবে
+  const r = await callDeepSeekJson(prompt, 0.6); 
+  
   if (!r.ok) return fail(r.error, r.status);
+  
+  // নিচের সবকিছু হুবহু আগের মতোই থাকবে
   const pack = normalizeSeoPack(r.data);
   if (!pack) return fail("SEO প্যাক তৈরি হয়নি। আবার চেষ্টা করুন।", 502);
+  
   return NextResponse.json({ ok: true, pack });
 }

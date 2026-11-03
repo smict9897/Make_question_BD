@@ -1,0 +1,15 @@
+name: AI Task Worker
+
+on:
+  schedule:
+    # প্রতি ৫ মিনিট পর পর চলবে (UTC Time)
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # চাইলে ম্যানুয়ালিও রান করা যাবে
+
+jobs:
+  run-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger AI Worker
+        run: |
+          curl -X GET "https://saifulsir.com/api/admin/ai-worker" --max-time 60

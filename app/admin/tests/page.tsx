@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 const f = "w-full rounded-xl border border-slate-300 bg-white px-3 py-2";
 
 export default async function Page() {
-  const tests = await db.modelTest.findMany({ orderBy: { createdAt: "desc" }, include: { _count: { select: { attempts: true } } } });
+  const tests = await db.practiceTest.findMany({ orderBy: { createdAt: "desc" }, include: { _count: { select: { attempts: true } } } });
   return (
     <div className="grid gap-4">
       <div className="rounded-2xl bg-white p-5 shadow-sm">

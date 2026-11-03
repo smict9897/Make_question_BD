@@ -45,19 +45,20 @@ export default function AdminAI() {
         {rows.map((r, i) => (
           <div key={i} className="grid gap-2 rounded-lg border border-slate-200 bg-white p-4">
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.keep} onChange={(e) => set(i, { keep: e.target.checked })} />Approve question {i + 1}</label>
+            
             <textarea className={f} value={r.text || ""} onChange={(e) => set(i, { text: e.target.value })} />
+            
             {(["A", "B", "C", "D"] as const).map((k) => (
               <div key={k} className="flex items-center gap-2">
                 <input type="radio" name={`c${i}`} aria-label={`Correct answer ${k}`} checked={r.correct === k} onChange={() => set(i, { correct: k })} />
                 <span className="w-4 text-sm">{k}</span>
                 
-                {/* 🎯 এখানে ?. এবং || "" যোগ করা হয়েছে যাতে undefined এরর না আসে */}
-                <input className={f} value={r.options?.[k] || ""} onChange={(e) => set(i, { options: { ...(r.options || {}), [k]: e.target.value } })} />
+                {/* 🎯 এখানে {} এর জায়গায় { A: "", B: "", C: "", D: "" } দেওয়া হলো */}
+                <input className={f} value={r.options?.[k] || ""} onChange={(e) => set(i, { options: { ...(r.options || { A: "", B: "", C: "", D: "" }), [k]: e.target.value } })} />
                 
               </div>
             ))}
             
-            {/* 🎯 এখানেও || "" যোগ করা হয়েছে */}
             <textarea className={f} value={r.explanation || ""} onChange={(e) => set(i, { explanation: e.target.value })} />
             
           </div>
